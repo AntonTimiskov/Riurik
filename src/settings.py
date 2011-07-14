@@ -16,6 +16,15 @@ import os, sys
 working_dir = os.path.dirname(os.path.abspath(__file__))
 root = os.path.normpath(os.path.dirname(working_dir))
 
+FORKS = {
+	'hunter': 'c:\\saip\\sharepoint information portal\\application\\tests',
+	'warrior': 'c:\\warrior\\sharepoint information portal\\application\\tests',
+	'wizard': 'c:\\wizard\\sharepoint information portal\\application\\tests',
+	'blade': 'c:\\blade\\sharepoint information portal\\application\\tests',
+}
+DEFAULT_FORK = 'hunter'
+CURRENT_FORK_PATH = FORKS.get(DEFAULT_FORK)
+
 DEBUG = True
 TEMPLATE_DEBUG = DEBUG
 
@@ -114,7 +123,7 @@ Actually it contains:
  - html\javascript code that loads and runs tests (testLoader.html & the 'loader' folder);
  - test cases (the 'cases' folder)
 '''
-PRODUCT_TESTS_ROOT = 'C:/saip/SharePoint Information Portal/Application/tests'
+PRODUCT_TESTS_ROOT = CURRENT_FORK_PATH
 PRODUCT_TEST_CASES_ROOT = 'cases'
 PRODUCT_TESTS_URL = 'tests/execute'
 STATIC_TESTS_ROOT = os.path.join(PRODUCT_TESTS_ROOT, PRODUCT_TEST_CASES_ROOT)
