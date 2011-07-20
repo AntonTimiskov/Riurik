@@ -8,6 +8,7 @@ var frame = {
 			var dfd = $.Deferred();
 
 			$('#frame').attr('src', url);
+			$('#frame-url').html('<a href="'+url+'">'+url+'</a>');
 			$('#frame').load(function() {
 				jQExtend(window.frames[0].window.jQuery);
 				dfd.resolve(window.frames[0].window.jQuery);
@@ -133,8 +134,6 @@ function jQExtend( $ ) {
 				console.log('a', a, busy, funcs)
 				var k = function(){
 					busy = true;
-					console.log('stack busy now');
-					console.log('calling a function');
 					var ret = null;
 					if ( typeof a == "function" ) {
 						ret = a();
@@ -397,6 +396,39 @@ var riurik = {
 
 	strip: function(s, c) {
 		return s.replace(new RegExp('^' + c + '+'), '').replace(new RegExp(c + '+$'), '');
+	},
+	
+	load_js: function(jsfile_src) {
+		var scr = jsfile_src;
+		QUnit.log('Adding script '+jsfile_src+' to queue to load');
+		var dfd = new $.Deferred();
+		
+		
+		var script = document.createElement( 'script' );
+		script.type = 'text/javascript';
+		script.src = jsfile_src;
+		
+		var onload = function() {
+			QUnit.log(scr +' is loaded.');
+			dfd.resolve(dfd);
+		};
+		
+		if( $.browser.msie ) {
+			script.onreadystatechange = function() {
+				QUnit.log('IE readyState is ' + script.readyState)
+				if (script.readyState == 'loaded' ||
+					script.readyState == 'complete') {
+					script.onreadystatechange = null;
+					onload();
+				};
+			}
+		}else{
+			script.onload = onload;
+		}
+		
+		document.body.appendChild( script );
+		
+		return dfd.promise(dfd);
 	}
 };
 
@@ -441,13 +473,18 @@ function clone(o) {
 	return c;
 }
 
-QUnit.begin = function(module) {
-	QUnit.log('tests are begun');
+riurik.init = function() {
 	QUnit.__tests_result_storage = new Array();
 	QUnit.riurik = {};
 	QUnit.riurik.current = { 'module': {}, 'test': '' };
 	QUnit.riurik.status = 'started';
 	QUnit.riurik.context = clone(context)
+}
+
+QUnit.begin = function() {
+	QUnit.log('tests are begun');
+	riurik.init();
+	riurik.load();
 }
 
 QUnit.done = function(module) {
@@ -606,16 +643,22 @@ QUnit.log = function(){
 QUnit.log('QUnit console: initialized');
 
 QUnit.config.reorder = false;
-QUnit.config.autostart = true;
 
 QUnit.setup = function(callback) {
 	QUnit.test('setup', 0, callback, false);
+}
+
+QUnit.asyncSetup = function(callback) {
+	QUnit.test('setup', 0, callback, true);
 }
 
 QUnit.teardown = function(callback) {
 	QUnit.test('teardown', 0, callback, false);
 }
 
+QUnit.asyncTeardown = function(callback) {
+	QUnit.test('teardown', 0, callback, true);
+}
 
 jQExtend($);
 
