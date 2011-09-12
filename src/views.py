@@ -382,15 +382,16 @@ def saveRemoteScripts(path, url, content, ctx, request):
 def auth(url, ctx):
 	login = ctx.get('login')
 	password = ctx.get('password')
+	empty_proxy_handler = urllib2.ProxyHandler({})
 	if login and password:
 		from ntlm import HTTPNtlmAuthHandler
 	
 		passman = urllib2.HTTPPasswordMgrWithDefaultRealm()
 		passman.add_password(None, url, login, password)
 		auth_NTLM = HTTPNtlmAuthHandler.HTTPNtlmAuthHandler(passman)
-		opener = urllib2.build_opener(auth_NTLM)
+		opener = urllib2.build_opener(auth_NTLM, empty_proxy_handler)
 	else:
-		opener = urllib2.build_opener()
+		opener = urllib2.build_opener(empty_proxy_handler)
 	
 	urllib2.install_opener(opener)
 	
