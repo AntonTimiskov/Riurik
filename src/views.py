@@ -22,128 +22,110 @@ import codecs, time
 __all__ = ('handler','serve',)
 _isolate_imports = False
 
-def setTestsRoot(document_root):
-	settings.STATIC_TESTS_ROOT = document_root
-	settings.STATIC_TESTS_URL = settings.STATIC_TESTS_URLs[document_root]
-	log.debug('Set tests root: %s' % document_root)
-
-def serve(request, path, document_root=None, show_indexes=False):
-	print request.session.session_key
-	print cache.get('asfasf')
+def serve(request, path, show_indexes=False):
 	cache.add('asfasf', datetime.datetime.now())
-
-	if 'nnn' in request.session:
-		print 'IN SESSION OK'
-	else:
-		print 'NOT IN SESSION'
 	request.session['nnn'] = 'awgawg'
 
-	"""
-	Serve static files below a given point in the directory structure.
-
-	To use, put a URL pattern such as::
-
-		(r'^(?P<path>.*)$', 'django.views.static.serve', {'document_root' : '/path/to/my/files/'})
-
-	in your URLconf. You must provide the ``document_root`` param. You may
-	also set ``show_indexes`` to ``True`` if you'd like to serve a basic index
-	of the directory.  This index view will use the template hardcoded below,
-	but if you'd like to override it, you can create a template called
-	``static/directory_index.html``.
-	"""
-	# Clean up given path to only allow serving files below document_root.
-	log.debug('Serve static files. Path %s, document_root %s' % (path, document_root))
-	path = posixpath.normpath(urllib.unquote(path))
-	path = path.lstrip('/')
-	newpath = ''
-	for part in path.split('/'):
-		if not part:
-			#Strip empty path components.
-			continue
-		drive, part = os.path.splitdrive(part)
-		head, part = os.path.split(part) 
-		if part in (os.curdir, os.pardir):
-			# Strip '.' and '..' in path.
-			continue
-		newpath = os.path.join(newpath, part)
-	fullpath = os.path.abspath(os.path.join(document_root, newpath))
-	fullpath = contrib.patch_fullpaths(fullpath, newpath)
+	document_root = contrib.get_document_root(path)
+	fullpath = contrib.get_full_path(document_root, path)
+	log.debug('show index of %s(%s %s)' % (fullpath, document_root, path))
+	
 	if os.path.isdir(fullpath):
 		if request.path and request.path[-1:] != '/':
 			return HttpResponseRedirect(request.path + '/')
 		if show_indexes:
-			try:
-				t = loader.select_template(['directory-index.html', 'directory-index'])
-			except TemplateDoesNotExist:
-				t = Template(django.views.static.DEFAULT_DIRECTORY_INDEX_TEMPLATE, name='Default directory index template')
-			files = []
-			dirs = []
-			for f in os.listdir(fullpath):
-				if not f.startswith('.'):
-					if os.path.isfile(os.path.join(fullpath, f)):
-						files.append(f)
-					else:
-						f += '/'
-						dirs.append(f)
-			if newpath == '/' or newpath == '': 
-				for key in settings.VIRTUAL_URLS:
-					files =  [ key + '/', ] + files
-			try:
-				contexts = context.get(fullpath).sections()
-			except Exception, e:
-				log.error(e)
-				contexts = []
-				
-			favicon = 'dir-index-%s.gif' % tools.get_type(fullpath)
+			template = load_index_template()
+			descriptor = get_dir_index(document_root, path, fullpath)
+			return HttpResponse(template.render(descriptor))
 
-			c = Context({
-				'directory' : newpath + '/',
-				'file_list' : files,
-				'dir_list'  : dirs,
-				'contexts'  : contexts,
-				'favicon'   : favicon,
-			})
-			return HttpResponse(t.render(c))
-		raise Http404("Directory indexes are not allowed here.")
 	if not os.path.exists(fullpath):
 		raise Http404('"%s" does not exist' % fullpath)
+	
+	if 'editor' in request.REQUEST:
+		descriptor = get_file_content_to_edit(path, fullpath, is_stubbed(path, request))
+		stub(path, request)
+		return _render_to_response('editor.html', descriptor, context_instance=RequestContext(request))
+	
+	return get_file_content(fullpath)
+
+def get_file_content_to_edit(path, fullpath, is_stubbed):
+	try:
+		contexts = context.get( fullpath ).sections()
+	except Exception, e:
+		log.exception(e)
+		contexts = []
+		
+	content = open(fullpath, 'rb').read()
+		
+	return {	
+		'directory': path,
+		'content': content,
+		'contexts': contexts,
+		'relative_file_path': path,
+		'is_stubbed': is_stubbed,
+		'favicon'   : 'dir-index-test.gif',
+	}
+
+def get_file_content(fullpath):
 	statobj = os.stat(fullpath)
 	mimetype, encoding = mimetypes.guess_type(fullpath)
 	mimetype = mimetype or 'application/octet-stream'
-	contents = open(fullpath, 'rb').read()
-	response = HttpResponse(contents, mimetype=mimetype)
+	content = open(fullpath, 'rb').read()
+	response = HttpResponse(content, mimetype=mimetype)
 	response["Last-Modified"] = http_date(statobj[stat.ST_MTIME])
-	response["Content-Length"] = len(contents)
+	response["Content-Length"] = len(content)
 	if encoding:
 		response["Content-Encoding"] = encoding
-		
-	try:
-		content = contents
-		if 'editor' in request.REQUEST:
-			try:
-				contexts = context.get( fullpath ).sections()
-			except Exception, e:
-				log.exception(e)
-				contexts = []
-
-			ret = _render_to_response(
-				'editor.html', 
-				{ 
-					'directory': path,
-					'content': content,
-					'contexts': contexts,
-					'relative_file_path': path,
-					'is_stubbed': is_stubbed(path, request),
-					'favicon'   : 'dir-index-test.gif',
-				}, 
-				context_instance=RequestContext(request)
-			)
-			stub(path, request)
-			return ret
-	except Exception, e:
-		log.exception(e)
-		
+	
 	return response
+
+def load_index_template():
+	try:
+		t = loader.select_template(['directory-index.html', 'directory-index'])
+	except TemplateDoesNotExist:
+		t = Template(django.views.static.DEFAULT_DIRECTORY_INDEX_TEMPLATE, name='Default directory index template')
+		
+	return t
+	
+def get_dir_index(document_root, path, fullpath):
+	files = []
+	dirs = []
+	
+	def get_descriptor(title):
+		fullpath = os.path.join(path, title)
+		return { 'title': title, 'type': tools.get_type(contrib.get_full_path(document_root, fullpath)) }
+
+	if not document_root:
+		pagetype = 'front-page' 
+		for key in settings.VIRTUAL_PATHS:
+			dir = get_descriptor(key)
+			dirs.append(dir)
+	else:
+		pagetype = tools.get_type(fullpath) 
+		for f in sorted(os.listdir(fullpath)):
+			if not f.startswith('.'):
+				if os.path.isfile(os.path.join(fullpath, f)):
+					files.append(get_descriptor(f))
+				else:
+					f += '/'
+					dirs.append(get_descriptor(f))
+
+	try:
+		contexts = context.get(fullpath).sections()
+	except Exception, e:
+		log.error(e)
+		contexts = []
+		
+	favicon = 'dir-index-%s.gif' % tools.get_type(fullpath)
+	
+	return Context({
+		'directory' : path + '/',
+		'type'		: pagetype,
+		'file_list' : files,
+		'dir_list'  : dirs,
+		'contexts'  : contexts,
+		'favicon'   : favicon,
+	})
 
 def get_path(request):
 	if request.POST and 'path' in request.POST:
@@ -159,8 +141,10 @@ def add_fullpath(fn):
 	def patch(request):
 		path = get_path(request)
 		if path:
-			log.debug('add_fullpath: func (%s) arguments patched. path: %s , fullpath: %s' % (fn, path, contrib.get_fullpath(path)))
-			return fn(request, contrib.get_fullpath(path))
+			document_root = contrib.get_document_root(path)
+			full_path = contrib.get_full_path(document_root, path)
+			log.debug('add full path for %s path: %s , fullpath: %s' % (fn, path, full_path))
+			return fn(request, contrib.get_full_path(document_root, path))
 		return fn(request)
 	return patch
 
@@ -222,7 +206,7 @@ def createSuite(request, fullpath):
 def editSuite(request, fullpath):
 	log.debug('edit context %s' % fullpath)
 	if not os.path.exists(os.path.join(fullpath, settings.TEST_CONTEXT_FILE_NAME)):
-		tools.mktest(fullpath, settings.TEST_CONTEXT_FILE_NAME)
+		tools.mkcontext(fullpath, settings.TEST_CONTEXT_FILE_NAME)
 	redirect = '/' + request.GET['path'] + '/' + settings.TEST_CONTEXT_FILE_NAME + '?editor'
 	return HttpResponseRedirect(redirect)
 	
@@ -247,12 +231,8 @@ def saveTest(request, fullpath):
 
 @add_fullpath	
 def saveDraftTest(request, fullpath):
-	result = tools.savetmptest(request.POST["content"], fullpath)
-	if result:
-		result = { 'success': result }
-	else:
-		result = { 'success': 'false' }
-	return HttpResponse(simplejson.dumps(result))
+	saveTest(request)
+	return HttpResponse()
 
 def submitTest(request):
 	testname = request.POST["path"]
@@ -283,7 +263,7 @@ def runSuite(request, fullpath):
 	
 	contextjs = context.render(ctx)
 	
-	path = removeVirtualFolderFromPath(path)
+	path = contrib.get_relative_clean_path(path)
 	if contrib.localhost(host) and not run == 'remote':
 		saveLocalContext(fullpath, contextjs)
 	else:
@@ -291,7 +271,7 @@ def runSuite(request, fullpath):
 		contextjs_path = os.path.join(path, settings.TEST_CONTEXT_JS_FILE_NAME)
 		sendContentToRemote(contextjs_path, contextjs, url, ctx)
 	
-	url = "%s/%s?suite=/%s&root=%s" % ( context.get_URL(ctx), settings.PRODUCT_TESTS_URL, path, get_root()  )
+	url = "%s/%s?suite=/%s" % ( context.get_URL(ctx), settings.EXEC_TESTS_CMD, path )
 	url = contrib.normpath(urllib.unquote(url))
 	log.info("Run suite %s" % path)
 	return HttpResponseRedirect( url )
@@ -302,17 +282,15 @@ def runTest(request, fullpath):
 	context_name = request.REQUEST.get("context", None)
 	ctx = context.get(fullpath, section=context_name)
 	
-	log.debug('run test %s' % path)
-	log.debug('Fullpath %s' % fullpath)
-	log.debug('Context name %s' % str(context_name))
-	log.debug('Context items: '+ str(ctx.items()))
+	log.debug('run test %s(%s)' % (path, fullpath))
+	log.debug('context %s: %s' % (context_name, str(ctx.items())))
 	
 	host = ctx.get('host')
 	run = ctx.get('run')
 	contextjs = context.render(ctx)
 	log.debug('contextJS: '+ contextjs)
-	
-	path = removeVirtualFolderFromPath(path)
+ 	
+	path = contrib.get_relative_clean_path(path)
 	root = get_root()
 	if (contrib.localhost(host) and not run == 'remote') or run == 'local':
 		saveLocalContext(fullpath, contextjs)
@@ -324,13 +302,12 @@ def runTest(request, fullpath):
 		sendContentToRemote(contextjs_path, contextjs, url, ctx)
 		saveRemoteScripts(path, url, request.REQUEST["content"], ctx, request)
 		
-	url = "%s/%s?path=/%s&root=%s" % (context.get_URL(ctx), settings.PRODUCT_TESTS_URL, path, root)
+	url = "%s/%s?path=/%s" % (context.get_URL(ctx), settings.EXEC_TESTS_CMD, path)
 		
-	log.info("Run test %s" % path)
+	log.info("redirect to run test %s" % url)
 	return HttpResponseRedirect(url)
 
 def removeVirtualFolderFromPath(path):
-	'''virtual folder is a folder that contains inner riurik tests'''
 	path = path.lstrip('/')
 	index = path.find(settings.INNER_TESTS_ROOT + '/')
 	if index == 0:

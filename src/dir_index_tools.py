@@ -2,19 +2,32 @@ import os, shutil
 import settings, resources
 from logger import log
 
-def getWorkingDir():
-	return settings.STATIC_TESTS_ROOT
-
 def get_type(path):
-	if os.path.isdir(path):
-		if os.path.exists( os.path.join(path, settings.TEST_CONTEXT_FILE_NAME) ):
-			return 'suite'
-		return 'folder'
-	return 'test'
+	"""
+	>>> get_type('C:\\\\none')
+	'none'
+	>>> get_type(os.path.dirname(__file__))
+	'folder'
+	>>> get_type(__file__)
+	'test'
+	>>> name = os.path.join(os.path.dirname(__file__), settings.TEST_CONTEXT_FILE_NAME)
+	>>> f = open(name, 'w')
+	>>> f.close()
+	>>> get_type(os.path.dirname(__file__))
+	'suite'
+	>>> os.remove(name)
+	"""
+	if os.path.exists(path):
+		if os.path.isdir(path):
+			if os.path.exists( os.path.join(path, settings.TEST_CONTEXT_FILE_NAME) ):
+				return 'suite'
+			return 'folder'
+		return 'test'
+	return 'none'
 
 def mkdir(path, name):
 	try:
-		fullpath = os.path.join(getWorkingDir(), path.strip('/'), name)
+		fullpath = os.path.join(path, name)
 		os.mkdir(fullpath)
 	except Exception, e:
 		return str(e)
@@ -23,21 +36,20 @@ def mkdir(path, name):
 
 def remove(path):
 	try:
-		fullpath = os.path.join(getWorkingDir(), path.strip('/'))
+		fullpath = os.path.join(path)
 		if os.path.isdir(fullpath):
 			import shutil
 			shutil.rmtree(fullpath)
 		else:
 			os.remove(fullpath)
 	except Exception, e:
-		print e
 		return str(e)
 	
 	return resources.ok
 
 def mksuite(path, name):
 	try:
-		fullpath = os.path.join(getWorkingDir(), path.strip('/'), name)
+		fullpath = os.path.join(path, name)
 		os.mkdir(fullpath)
 		filename = os.path.join(fullpath, settings.TEST_CONTEXT_FILE_NAME)
 		f = open(filename, 'w')
@@ -67,7 +79,7 @@ def mkcontext(path, name):
 
 def mkscript(path, name, template_name=None):
 	try:
-		fullpath = os.path.join(getWorkingDir(), path.strip('/'), name)
+		fullpath = os.path.join(path, name)
 		f = open(fullpath, 'w')
 		if template:
 			f.write(template(template_name))

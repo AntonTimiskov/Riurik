@@ -3,11 +3,12 @@ from logger import log
 import settings, config, contrib
 from django.template import Context, Template
 import socket
+from django.core.cache import cache
 		
 def host(instance, resolve=True):
 	key = 'host'
 	if resolve:
-		return contrib.resolveRemoteAddr(instance.get(key))
+		return contrib.resolveRemoteAddr(instance.get(key), cache)
 	return instance.get(key)
 		
 def get(name, section='default'):
@@ -20,7 +21,7 @@ def get_URL(instance, resolve=False):
 		if host == 'localhost':
 			host = socket.gethostname()
 		if resolve:
-			host = contrib.resolveRemoteAddr(host)
+			host = contrib.resolveRemoteAddr(host, cache)
 		url =  'http://%s:%s' % (host, instance.get('port'))
 	return url
 

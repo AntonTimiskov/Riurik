@@ -25,6 +25,8 @@ FORKS = {
 DEFAULT_FORK = 'hunter'
 CURRENT_FORK_PATH = FORKS.get(DEFAULT_FORK)
 
+from oldsettings import *
+
 DEBUG = True
 TEMPLATE_DEBUG = DEBUG
 
@@ -116,26 +118,12 @@ INSTALLED_APPS = (
 	'src',
 )
 
-'''
-Path to a folder in a product where tests dedicated code is located.
-Actually it contains:
- - python code that opens access to tests ('views.py' & 'urls.py');
- - html\javascript code that loads and runs tests (testLoader.html & the 'loader' folder);
- - test cases (the 'cases' folder)
-'''
-PRODUCT_TESTS_ROOT = CURRENT_FORK_PATH
-PRODUCT_TEST_CASES_ROOT = 'cases'
-PRODUCT_TESTS_URL = 'tests/execute'
-STATIC_TESTS_ROOT = os.path.join(PRODUCT_TESTS_ROOT, PRODUCT_TEST_CASES_ROOT)
-STATIC_TESTS_URL = ''
-ROOT_TESTS = 'src.tests'
-
-INNER_TESTS_ROOT = 'tests'
-TESTS_URL = 'cases'
-
-VIRTUAL_URLS = {
-    INNER_TESTS_ROOT: os.path.join(os.path.dirname( __file__ ), INNER_TESTS_ROOT, 'cases'),
+VIRTUAL_PATHS = {
+    	'riurik-inner-tests': os.path.join(os.path.dirname( __file__ ), 'tests', 'cases'),
+	'info-portal-tests': 'C:\\saip\\SharePoint Information Portal\\Application\\tests\\cases',
 }
+
+EXEC_TESTS_CMD='testsrc/execute'
 
 TEST_CONTEXT_FILE_NAME = '.context.ini'
 TEST_CONTEXT_JS_FILE_NAME = '.context.js'

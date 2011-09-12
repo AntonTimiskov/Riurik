@@ -1,14 +1,10 @@
-module('create suite');
+module('create a suite');
 
-QUnit.setup(function() {
-  context.folder_name = 'first-folder';
+QUnit.asyncSetup(function() {
   context.suite_name = 'first-suite';
-  context.suite_path = context.folder_name + '/' + context.suite_name;
-  create_folder(context.folder_name, '/');
-});
-
-asyncTest('check created', function() {
-  $.when( frame.go(contexter.URL(context, context.folder_name)) ).then(function(_$) {
+  context.suite_path = context.root.concat('/', context.suite_name);
+  
+  $.when( frame.go(contexter.URL(context, context.root)) ).then(function(_$) {
     
     $.when( _$('a#new-suite').click() ).then(function() {
       
@@ -16,7 +12,7 @@ asyncTest('check created', function() {
       _$('#create-folder-btn').click();
       
       $.when( frame.load() ).then(function(_$) {
-        equal(_$('li#'+ context.suite_name + '.folder').length, 1, 'new suite has been created');
+        equal(_$('li#'+ context.suite_name + '.folder').length, 1, 'new folder for suite has been created');
                 
         start();
       });
@@ -24,13 +20,14 @@ asyncTest('check created', function() {
   });
 });
 
-asyncTest('setup context', function() {
+asyncTest('setup context for the suite', function() {
   
-  $.when( frame.go(contexter.URL(context, context.folder_name)) ).then(function(_$) {
+  $.when( frame.go(contexter.URL(context, context.root)) ).then(function(_$) {
     
     window.frames[0].dirIndexActions.edit(context.suite_name);
     $.when( frame.load() ).then(function(_$) {
-      equal(_$('.editbox').length, 1)
+      console.log(_$("body", _$('iframe').get(0).contentDocument));
+      equal(_$('body', _$('.CodeMirror-wrapping iframe').get(0).contentDocument).length, 1, 'editor is opened');
       start();
     });
     
@@ -38,5 +35,5 @@ asyncTest('setup context', function() {
 });
 
 QUnit.teardown(function() {
-  delete_folder(context.folder_name);
+  delete_folder(context.suite_path);
 });

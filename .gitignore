@@ -2,5 +2,7 @@
 *.log
 *.swp
 *.bat
-context.js
+.context.js
 local_settings.py
+.ropeproject
+tags
