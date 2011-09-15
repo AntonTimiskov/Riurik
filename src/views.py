@@ -267,7 +267,7 @@ def runSuite(request, fullpath):
 	if contrib.localhost(host) and not run == 'remote':
 		saveLocalContext(fullpath, contextjs)
 	else:
-		url = "%s/%s" % (context.get_URL(ctx, False), settings.PRODUCT_TESTS_URL)
+		url = "%s/%s" % (context.get_URL(ctx, True), settings.UPLOAD_TESTS_CMD)
 		contextjs_path = os.path.join(path, settings.TEST_CONTEXT_JS_FILE_NAME)
 		sendContentToRemote(contextjs_path, contextjs, url, ctx)
 	
@@ -297,7 +297,7 @@ def runTest(request, fullpath):
 		if run == 'local':
 			root = ''
 	else:
-		url = "%s/%s" % (context.get_URL(ctx, True), settings.PRODUCT_TESTS_URL)
+		url = "%s/%s" % (context.get_URL(ctx, True), settings.UPLOAD_TESTS_CMD)
 		contextjs_path = os.path.join(os.path.dirname(path), settings.TEST_CONTEXT_JS_FILE_NAME)
 		sendContentToRemote(contextjs_path, contextjs, url, ctx)
 		saveRemoteScripts(path, url, request.REQUEST["content"], ctx, request)
@@ -327,8 +327,7 @@ def saveLocalContext(fullpath, contextjs):
 def makeSaveContentPost(content, path):
 	return {
 		'content': content,
-		'path': path,
-		'tests_root': settings.PRODUCT_TEST_CASES_ROOT 
+		'path': path 
 	}
 	
 def saveTestSatelliteScripts(url, test, request, libs):

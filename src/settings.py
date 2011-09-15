@@ -16,11 +16,14 @@ import os, sys
 working_dir = os.path.dirname(os.path.abspath(__file__))
 root = os.path.normpath(os.path.dirname(working_dir))
 
+info_portal_tests = 'info-portal-tests'
+info_portal_path = os.path.join('sharepoint information portal', 'application', 'tests', 'cases')
 FORKS = {
-	'hunter': 'c:\\saip\\sharepoint information portal\\application\\tests',
-	'warrior': 'c:\\warrior\\sharepoint information portal\\application\\tests',
-	'wizard': 'c:\\wizard\\sharepoint information portal\\application\\tests',
-	'blade': 'c:\\blade\\sharepoint information portal\\application\\tests',
+	'hunter': 'c:\\saip',
+	'warrior': 'c:\\warrior',
+	'wizard': 'c:\\wizard',
+	'blade': 'c:\\blade',
+	'ford': 'c:\\ford',
 }
 DEFAULT_FORK = 'hunter'
 CURRENT_FORK_PATH = FORKS.get(DEFAULT_FORK)
@@ -119,11 +122,12 @@ INSTALLED_APPS = (
 )
 
 VIRTUAL_PATHS = {
-    	'riurik-inner-tests': os.path.join(os.path.dirname( __file__ ), 'tests', 'cases'),
-	'info-portal-tests': 'C:\\saip\\SharePoint Information Portal\\Application\\tests\\cases',
+    'riurik-inner-tests': os.path.join(os.path.dirname( __file__ ), 'tests', 'cases'),
+	info_portal_tests: os.path.join(CURRENT_FORK_PATH, info_portal_path),
 }
 
 EXEC_TESTS_CMD='testsrc/execute'
+UPLOAD_TESTS_CMD='testsrc/upload'
 
 TEST_CONTEXT_FILE_NAME = '.context.ini'
 TEST_CONTEXT_JS_FILE_NAME = '.context.js'

@@ -7,19 +7,13 @@ class Command(BaseCommand):
 
 	def handle(self, *args, **options):
 			import settings
-			#for fork in args:
-		        fork = args[0]
+			fork = args[0]
 			port = args[1]
 			if fork in settings.FORKS:
-				fork_path = settings.FORKS.get( fork )
-				settings.CURRENT_FORK_PATH = fork_path
-
-				settings.PRODUCT_TESTS_ROOT = settings.CURRENT_FORK_PATH
-				settings.STATIC_TESTS_ROOT = os.path.join(settings.PRODUCT_TESTS_ROOT, settings.PRODUCT_TEST_CASES_ROOT)
-
-				self.stdout.write('Current fork is %s (%s)\n' % (fork, fork_path))
+				settings.CURRENT_FORK_PATH = settings.FORKS.get( fork )
+				settings.VIRTUAL_PATHS[settings.info_portal_tests] = os.path.join(settings.CURRENT_FORK_PATH, settings.info_portal_path)
+				self.stdout.write('Current fork is %s (%s)\n' % (fork, settings.CURRENT_FORK_PATH))
 				from django.core.management import call_command
 				call_command('runserver', '0.0.0.0:'+str(port))
 			else:
 				self.stdout.write('UnKnown fork "%s"\n' % fork)
-			#break
