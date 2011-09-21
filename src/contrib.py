@@ -1,10 +1,74 @@
+# coding: utf-8
 import os, re, settings
 from logger import log
+import socket, simplejson
+
+def get_libraries(context):
+	"""
+	>>> get_libraries({})
+	[]
+	>>> get_libraries({'libraries': '["lib1", "lib2"]'})
+	['lib1', 'lib2']
+	"""
+	libs = context.get('libraries', '[]')
+	return simplejson.loads(libs)
+
+def convert_dict_values_strings_to_unicode(obj):
+	"""
+		>>> convert_dict_values_strings_to_unicode({'key1': u'Ё'})
+		{'key1': '\\xc3\\x90\\xc2\\x81'}
+	"""
+	for key, val in obj.iteritems():
+		if val.__class__.__name__ == 'unicode':
+			obj[key] = val.encode('utf-8')
+	return obj
+
+
+def get_target_host(context):
+	"""
+	returns http url of target lab to run tests on by host and port values in a context
+	if these values in the context are empry it returns None
+	if host is localhost it returns resolved name
+	>>> get_target_host({})
+	
+	>>> get_target_host({'host': 'host-1'})	
+
+	>>> get_target_host({'port': 'port-1'})	
+
+	>>> get_target_host({'host': 'google.com', 'port': '22'})	
+	'google.com:22'
+	>>> from minimock import mock
+	>>> import os
+	>>> mock('socket.gethostname', returns='google.com')
+	>>> get_target_host({'host': 'localhost', 'port': '22'})	
+	Called socket.gethostname()
+	'google.com:22'
+	"""
+	host = context.get('host')
+	port = context.get('port')
+	if host and port:
+		if host == 'localhost':
+			host = socket.gethostname()
+ 
+		return '%s:%s' % (host, port)
+
+def get_virtual_root(path):
+	"""
+	>>> settings.VIRTUAL_PATHS['some-key'] = 'some-value'
+	>>> get_virtual_root('/some-key/test-1')
+	'some-key'
+	"""
+	if path:
+		key = path.strip('/').split('/')[0]
+		if key and key in settings.VIRTUAL_PATHS:
+			return key
 
 def get_document_root(path):
 	"""
 	>>> settings.VIRTUAL_PATHS['some-key'] = 'some-value'
 	>>> get_document_root('/some-key/test-1')
+	'some-value'
+	>>> get_document_root('some-key')
 	'some-value'
 	>>> get_document_root('')
 	''
@@ -13,7 +77,7 @@ def get_document_root(path):
 	"""
 	if path:
 		key = path.strip('/').split('/')[0]
-		if key and key in settings.VIRTUAL_PATHS: 
+		if key and key in settings.VIRTUAL_PATHS:
 			return settings.VIRTUAL_PATHS[key]
 	
 	return path
@@ -57,6 +121,19 @@ def get_relative_clean_path(path):
 			if len(parts) > 1:
 				return parts[1].strip('/')
 	return '' 
+
+def enum_suite_tests(target):
+	tests = []
+	for root, dirs, files in os.walk(target):
+		for file in files:
+			if re.match('^.*\.js$', file) and not file.startswith('.'):
+				#if file in exclude:
+				#	continue
+				file_abspath = os.path.abspath(os.path.join(root, file))
+				file_relpath = file_abspath.replace(os.path.abspath(target), '').lstrip('/').lstrip('\\')
+				tests += [ str(file_relpath) ]
+
+	return tests
 
 def patch_fullpaths(fullpath, newpath=''):
 	for key in settings.VIRTUAL_URLS:

@@ -3,7 +3,13 @@ from django.shortcuts import render_to_response
 from django.views.decorators.cache import never_cache
 from django.conf import settings
 from django.utils.translation import ugettext as _
+from django.views.decorators.csrf import csrf_exempt
 import os, random
+try:
+	from logger import log
+except:
+	import logging
+	log = logging.getLogger('default')
 
 try:
     from django.contrib import messages
@@ -11,10 +17,12 @@ try:
 except ImportError: 
     _USE_MESSAGES = False
 
-def saveTestContent(path, content, test_root):
-	root = os.path.dirname(os.path.abspath(__file__))
-	path = os.path.join(root, test_root, path)
+loader_dir = 'loader'
+cases_dir = 'cases'
 	
+def saveTestContent(document_root, path, content):
+	log.info('save script %s' % path)
+	path = os.path.join(document_root, cases_dir, path)
 	if not os.path.exists(os.path.dirname(path)):
 		os.makedirs(os.path.dirname(path))
 	
@@ -25,45 +33,29 @@ def saveTestContent(path, content, test_root):
 @never_cache
 def execute(request):
 	rand = random.random()
-	loader = 'loader'
-	cases = 'cases'
+	loader = loader_dir
+	cases = cases_dir
 	
 	if 'suite' in request.REQUEST:
 		jspath = request.REQUEST.get('suite', '').strip('/')
+		log.info('execute suite %s' % jspath)
 		title = os.path.basename(jspath)
 		suite = True
 	else:
 		jsfile = request.REQUEST.get('path', '').strip('/')
+		log.info('execute test %s' % jsfile)
 		jspath = os.path.dirname(jsfile).strip('/')
 		title = os.path.basename(jsfile)
-
-	return render_to_response('loader/testLoader.html', locals())
-
-@never_cache
-def index(request):
-	if request.method == "POST":
-		response = HttpResponse(mimetype='text/plain')
-		try:
-			saveTestContent(request.REQUEST['path'], request.REQUEST['content'], request.REQUEST['tests_root'])
-			response.write('OK')
-		except Exception, e:
-			response.write('FAILED')
 		
-		return response
-	else:
-		rand = random.random()
-		root = request.REQUEST.get('root', '')
-		if root:
-			loader = root + '/../loader'
-		else:
-			loader = '/testsrc/loader'
-		if 'suite' in request.REQUEST:
-			jspath = request.REQUEST.get('suite', '').strip('/')
-			title = os.path.basename(jspath)
-			suite = True
-		else:
-			jsfile = request.REQUEST.get('path', '').strip('/')
-			jspath = os.path.dirname(jsfile).strip('/')
-			title = os.path.basename(jsfile)
+	return render_to_response('%s/testLoader.html' % loader_dir, locals())
 
-		return render_to_response('testLoader.html', locals())
+@csrf_exempt
+def upload(request, document_root):
+	response = HttpResponse(mimetype='text/plain')
+	try:
+		saveTestContent(document_root, request.REQUEST['path'], request.REQUEST['content'])
+		response.write('OK')
+	except Exception, e:
+		response.write('FAILED')
+	
+	return response

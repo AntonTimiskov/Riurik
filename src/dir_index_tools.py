@@ -21,7 +21,11 @@ def get_type(path):
 		if os.path.isdir(path):
 			if os.path.exists( os.path.join(path, settings.TEST_CONTEXT_FILE_NAME) ):
 				return 'suite'
+			if path.rstrip('/').rstrip('\\') in settings.VIRTUAL_PATHS.values():
+				return 'virtual'
 			return 'folder'
+		if '.ini' in path:
+			return 'configfile'
 		return 'test'
 	return 'none'
 
@@ -147,11 +151,8 @@ def savetest(content, fullpath):
 	return resources.ok
 
 def gettest(path):
-	try:
-		f = open(path, 'r')
-		content = f.read()
-		f.close()
-	except Exception, e:
-		return str(e)
+	f = open(path, 'r')
+	content = f.read()
+	f.close()
 	
 	return content
