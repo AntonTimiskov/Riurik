@@ -369,7 +369,10 @@ def runTest(request, fullpath):
 	target = contrib.get_target_host(ctx)
 	log.info('target of test %s is %s' % (clean_path, target))
 	
-	if target and request.get_host().lower() != target.lower():
+	test_content = request.REQUEST.get('content', None)
+	tools.savetest(test_content, fullpath)
+	
+	if contrib.target_is_remote( target, request.get_host()):
 		log.debug('TARGET: %s, %s' % ( target, request.get_host() ))
 		url = "http://%s/%s" % (target, settings.UPLOAD_TESTS_CMD)
 		saveRemoteContext(os.path.dirname(clean_path), contextjs, url, ctx)
@@ -444,7 +447,9 @@ def sendContentToRemote(path, content, url, ctx):
 	try:
 		return  urllib2.urlopen(req).read()
 	except urllib2.URLError, e:
-		raise urllib2.URLError('%s %s' % (e.reason, url))
+		if hasattr(e, 'reason'):
+			raise urllib2.URLError('%s %s' % (e.reason, url))
+		raise
 
 def auth(url, ctx):
 	login = ctx.get('login')

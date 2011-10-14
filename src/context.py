@@ -113,9 +113,9 @@ class global_settings(object):
 		config.set(self.inifile, self.section, option, value)
 		log.debug('set context option: %s=%s' % (option, value))
 
-	def items(self):
-		log.debug('context get items(): %s, section: %s\nresult:\n%s' % (self.inifile, self.section, config.items(self.inifile, self.section)))
-		return config.items(self.inifile, self.section)
+	def items(self, vars=None):
+		log.debug('context get items: %s, section: %s' % (self.inifile, self.section))
+		return config.items(self.inifile, self.section, vars)
 	
 	def __patch_values(self, vals):
 		if not vals: return 
@@ -154,5 +154,5 @@ class context(global_settings):
 		values = {}
 		values.update( global_settings(self.inifile).items() or {} )
 		values.update( global_settings(self.inifile, self.section).items() or {} )
-		values.update( super(context, self).items() or {} )
+		values.update( super(context, self).items(values) or {} )
 		return values.items()
