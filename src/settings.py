@@ -16,18 +16,6 @@ import os, sys
 working_dir = os.path.dirname(os.path.abspath(__file__))
 root = os.path.normpath(os.path.dirname(working_dir))
 
-info_portal_tests = 'info-portal-tests'
-info_portal_path = os.path.join('sharepoint information portal', 'application', 'tests', 'cases')
-FORKS = {
-	'hunter': 'c:\\saip',
-	'warrior': 'c:\\warrior',
-	'wizard': 'c:\\wizard',
-	'blade': 'c:\\blade',
-	'ford': 'c:\\ford',
-}
-DEFAULT_FORK = 'hunter'
-CURRENT_FORK_PATH = FORKS.get(DEFAULT_FORK)
-
 from oldsettings import *
 
 DEBUG = True
@@ -121,9 +109,15 @@ INSTALLED_APPS = (
 	'src',
 )
 
+info_portal_tests = 'info-portal-tests'
+info_portal_path = os.path.join('sharepoint information portal', 'application', 'tests', 'cases')
 VIRTUAL_PATHS = {
-    'riurik-inner-tests': os.path.join(os.path.dirname( __file__ ), 'tests', 'cases'),
-	info_portal_tests: os.path.join(CURRENT_FORK_PATH, info_portal_path),
+	'info-portal-tests': os.path.join('c:\\hunter', info_portal_path),
+	'warrior': os.path.join('c:\\warrior', info_portal_path),
+	'wizard': os.path.join('c:\\wizard', info_portal_path),
+	'blade': os.path.join('c:\\blade', info_portal_path),
+	'ford': os.path.join('c:\\ford', info_portal_path),
+	'olegshevnin': os.path.join('c:\\olegshevnin', info_portal_path),
 }
 
 EXEC_TESTS_CMD='testsrc/execute'
@@ -133,7 +127,7 @@ TEST_CONTEXT_FILE_NAME = '.context.ini'
 TEST_CONTEXT_JS_FILE_NAME = '.context.js'
 TEST_FILE_EXT = '.js'
 TEST_SWAP_FILE_NAME = '.%s.swp'
-
+LIB_KEY_NAME = 'libraries'
 APPEND_SLASH = False
 CODEMIRROR_CALL_EDITOR_FOR = '^.*\.(?:js|ini|html|py)$'
 

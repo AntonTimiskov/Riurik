@@ -53,35 +53,14 @@ def render_ini(path, ctx, section_name='default'):
 		c['options'] += [ (name, value, hasattr(value, 'comment')), ]
 	return t.render(c)
 
-def libraries(path, vars, ctx):
-	libraries = []
-	libs = contrib.get_libraries(ctx)
-	root = contrib.get_document_root(path)
-	for lib in libs:
-		#full_path = os.path.abspath(os.path.join(root, lib))
-		#if not os.path.exists(full_path):
-		#	current_suite_path = os.path.abspath(os.path.join(ctx.get_folder(), lib))
-		#	if os.path.exists(current_suite_path):
-		#		log.info('%s lib is located in current suite folder' % lib)
-		#		lib_relpath = current_suite_path.replace(root, '').lstrip('/') 
-		#		libraries.append(str(lib_relpath))
-		#	else:
-		#		for path in ctx.get( option='LIBRARY_PATH' ).split(','):
-		#			global_libs_path = os.path.abspath(os.path.join(root, path.strip(), lib))
-		#			if os.path.exists(global_libs_path):
-		#				log.info('%s lib is located in the %s global library path' % (lib, path))
-		#				lib_relpath = global_libs_path.replace(root, '').lstrip('/') 
-		#				libraries.append(str(lib_relpath))
-		#				break
-		#		
-		#		if not lib in str(libraries):
-		#			log.error('%s lib is not found in any available library paths' % lib)
-		#else:
-		#	libraries.append((lib))
-		lib_path = contrib.get_lib_path_by_name(root, lib, ctx)
-		if lib_path:
-			libraries.append(lib_path)
-	return tuple(list(vars) + [ ('libraries', str(libraries).replace('\'','\"')) ])
+def patch_libraries(path, vars, ctx):
+	libraries = contrib.get_libraries_impl(path, vars, ctx)
+	log.info('libs are %s' % libraries)
+	if libraries != None:
+		vars_as_list = [var for var in list(vars) if var[0] != settings.LIB_KEY_NAME]
+		return tuple(vars_as_list + [ (settings.LIB_KEY_NAME, str(libraries).replace('\'','\"')) ])
+
+	return vars
 
 def start_time(vars):
 	vars = list(vars)
@@ -120,7 +99,7 @@ def patch(path, ctx):
 					include += [ str(file_relpath) ]
 		vars = tuple(list(vars) + [ ('include', str(include).replace('\'','\"')) ])
 		
-	vars = libraries(path, vars, ctx)
+	vars = patch_libraries(path, vars, ctx)
 	vars = start_time(vars)
 	if localhost:
 		vars = list(vars)
@@ -189,9 +168,20 @@ class context(global_settings):
 			value = default
 		return value
 	
+	def libraries(self, values):
+		gs = global_settings(self.inifile).items() or {}
+		for item in gs:
+			if item[0] == settings.LIB_KEY_NAME:
+				glibs = item[1]
+				llibs = values[settings.LIB_KEY_NAME]
+				if glibs != llibs:
+					libs = { settings.LIB_KEY_NAME: ','.join([glibs, llibs]) }
+					values.update(libs)
+
 	def items(self):
 		values = {}
 		values.update( global_settings(self.inifile).items() or {} )
 		values.update( global_settings(self.inifile, self.section).items() or {} )
 		values.update( super(context, self).items(values) or {} )
+		self.libraries(values)
 		return values.items()
