@@ -4,6 +4,7 @@ from django.http import Http404, HttpResponse, HttpResponseRedirect, HttpRespons
 import os, simplejson as json
 import libsearch
 import contrib
+from logger import log
 
 def search_view_ext(request, path=None, search_pattern=None, as_json=False):
 	path = request.GET.get('path', path)
@@ -12,6 +13,7 @@ def search_view_ext(request, path=None, search_pattern=None, as_json=False):
 	document_root = contrib.get_document_root(path)
 	full_path = contrib.get_full_path(document_root, path)
 	folders = [ full_path ]
+	log.debug(locals())
 	if os.path.isfile(full_path):
 		folders = [ os.path.dirname(full_path) ]
 		path = os.path.dirname( path )
@@ -23,8 +25,10 @@ def search_view(request, folders, url, search_pattern, as_json=False):
 	folder = folders[0]
 	searches = {}
 	for filepath in libsearch.iter_files(folders):
+		log.debug('Searching in %s' % filepath)
 		res = libsearch.search_in_file( filepath,  search_pattern)
 		if not res: continue
+		log.debug('Got results: %s' % res)
 		filepath = filepath.replace(folder, url).replace('\\', '/').replace('//', '/')
 		searches[filepath] = res
 
