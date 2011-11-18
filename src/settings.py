@@ -107,6 +107,7 @@ INSTALLED_APPS = (
 	'django.contrib.sites',
 	'django.contrib.messages',
 	'src',
+	'src.plugins.search',
 )
 
 info_portal_tests = 'info-portal-tests'
