@@ -25,17 +25,16 @@ urlpatterns = patterns('',
 	(r'^actions/remove/$', 'views.removeObject'),
 	(r'^actions/suite/enumerate/$', 'views.enumerate_suites'),
 	(r'^(?P<path>.*)/show_context[/]?$', 'views.show_context'),
+	(r'^settings[/]?$', 'views.live_settings_view'),
 )
 
 urlpatterns += patterns('',
 	(r'search', include('plugins.search.urls')),
 )
 
-#VIRTUAL_PATHS['info-portal-tests']
 sys.path.append('C:\\hunter\\tests')
 urlpatterns += patterns('',
-	#(r'^testsrc', include('src.tests.urls')),
-	(r'^testsrc', include('riurik.urls')),
+	(r'^testsrc', include(settings.tests_loader_path)),
 )
 
 urlpatterns += patterns('',
