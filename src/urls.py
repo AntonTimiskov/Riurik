@@ -1,3 +1,4 @@
+import sys
 from django.conf.urls.defaults import *
 
 from django.views.static import serve
@@ -30,8 +31,11 @@ urlpatterns += patterns('',
 	(r'search', include('plugins.search.urls')),
 )
 
+#VIRTUAL_PATHS['info-portal-tests']
+sys.path.append('C:\\hunter\\tests')
 urlpatterns += patterns('',
-	(r'^testsrc', include('src.tests.urls')),
+	#(r'^testsrc', include('src.tests.urls')),
+	(r'^testsrc', include('riurik.urls')),
 )
 
 urlpatterns += patterns('',
