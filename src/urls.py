@@ -26,10 +26,11 @@ urlpatterns = patterns('',
 	(r'^actions/suite/enumerate/$', 'views.enumerate_suites'),
 	(r'^(?P<path>.*)/show_context[/]?$', 'views.show_context'),
 	(r'^settings[/]?$', 'views.live_settings_view'),
+	(r'^settings/save[/]?$', 'views.live_settings_save'),
 )
 
 urlpatterns += patterns('',
-	(r'search', include('plugins.search.urls')),
+	(r'^search', include('plugins.search.urls')),
 )
 
 sys.path.append('C:\\hunter\\tests')

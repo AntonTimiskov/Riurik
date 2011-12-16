@@ -91,7 +91,6 @@ ROOT_URLCONF = 'urls'
 TEMPLATE_DIRS = (
 
     os.path.join(os.path.dirname( __file__ ), 'templates'),
-    os.path.join(os.path.dirname( __file__ ), 'tests'),
 )
 
 TEMPLATE_CONTEXT_PROCESSORS = (
@@ -121,8 +120,10 @@ TEST_SWAP_FILE_NAME = '.%s.swp'
 LIB_KEY_NAME = 'libraries'
 APPEND_SLASH = False
 CODEMIRROR_CALL_EDITOR_FOR = '^.*\.(?:js|ini|html|py)$'
+INCLUDE_KEY = 'include'
+EXCLUDE_KEY = 'exclude'
 
-try:
-	from local_settings import *
-except Exception, ex: print ex
+#try:
+#	from local_settings import *
+#except Exception, ex: print ex
 #pass

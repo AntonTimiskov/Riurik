@@ -1,8 +1,92 @@
 # coding: utf-8
 import os, re, settings, virtual_paths
 from logger import log
-import socket, simplejson
+import socket
 
+class context_impl():
+
+	def __init__(self, items):
+		self.items = items
+		self.items_as_list = list(self.items)
+
+	def has(self, key):
+		"""
+		>>> ci = context_impl([('host', 'host-1')])
+		>>> ci.has('host')
+		True
+		>>> ci.has('port')
+		False
+		"""
+		for i, v in self.items:
+			if i == key:
+				return True
+
+		return False
+
+	def check(self, key, value):
+		"""
+		>>> ci = context_impl([('host', 'host-1')])
+		>>> ci.check('host', 'host-1')
+		True
+		>>> ci.check('host', 'host-2')
+		False
+		>>> ci.check('port', '8000')
+		False
+		"""
+		for i, v in self.items:
+			if i == key and v == value:
+				return True
+
+		return False
+
+	def replace(self, key, value):
+		self.remove(key)
+		self.add(key, value)
+
+	def replace_if(self, key, new_value, old_value):
+		"""
+		>>> ci = context_impl([('host', 'host-1')])
+		>>> ci.replace_if('port', '8000', '8001')
+		>>> ci.as_tuple()
+		(('host', 'host-1'),)
+		>>> ci.replace_if('host', 'host-2', 'host-1')
+		>>> ci.as_tuple()
+		(('host', 'host-2'),)
+
+		"""
+		try:
+			self.remove(key, old_value)
+			self.add(key, new_value)
+		except ValueError, e:
+			log.error(e)
+
+	def add(self, key, value):
+		self.items_as_list.append((key, value))
+
+	def remove(self, key, value=None):
+		if not value:
+			self.items_as_list = [item for item in self.items_as_list if item[0] != key]
+		else:
+			self.items_as_list.remove((key, value))
+
+	def as_items(self):
+		return self.items
+
+	def as_tuple(self):
+		return tuple(self.items_as_list)
+
+def get_virtual_paths():
+	"""
+	>>> from minimock import mock
+	>>> mock('reload')
+	>>> virtual_paths.VIRTUAL_PATHS = {'key': 'value'}
+	>>> get_virtual_paths() #doctest: +ELLIPSIS
+	Called reload...
+	...<module 'src.virtual_paths'...
+	{'key': 'value'}
+	"""
+	reload(virtual_paths)
+	return virtual_paths.VIRTUAL_PATHS
 
 def target_is_remote(target, host):
 	"""
@@ -19,40 +103,16 @@ def target_is_remote(target, host):
 		and not 'localhost' in host and	\
 		host.lower() != target.lower():
 			return True
-	
+
 	return False
-
-def get_libraries__(context):
-	try:
-		libs = context.get('libraries', '[]')
-		return simplejson.loads(libs)
-	except:
-		return get_libraries_new(context)
-
-def get_libraries___(context):
-	"""
-	>>> get_libraries___({})
-	[]
-	>>> get_libraries___({'libraries': 'lib1, lib2'})
-	['lib1', 'lib2']
-	>>> get_libraries___({'libraries': '[]'})
-	"""
-	libs = context.get('libraries', None)
-	if libs and libs == '[]':
-		return None
-	
-	if libs:
-		return [lib.strip() for lib in libs.split(',')]
-	else:
-		return []
 
 def get_libraries(path, context):
 	return get_libraries_impl(path, context.items(), context)
 
-def get_libraries_impl(path, vars, ctx):
+def get_libraries_impl(path, ctxitems, ctx):
 	libraries = []
-	
-	libs = get_libraries_raw(vars)
+
+	libs = get_libraries_raw(ctxitems)
 	root = get_document_root(path)
 	log.info('libs are %s' % libs)
 	if libs != None:
@@ -64,9 +124,12 @@ def get_libraries_impl(path, vars, ctx):
 			log.info('there are no precofigured libs to include, try defaults ...')
 			libraries = libraries_default(root, ctx)
 
-	return libraries 
+	return libraries
 
-def get_libraries_raw(vars):
+def loadListFromString(source):
+	return [item.strip() for item in source.split(',')]
+
+def get_libraries_raw(ctxitems):
 	"""
 	>>> get_libraries_raw([])
 	[]
@@ -76,7 +139,7 @@ def get_libraries_raw(vars):
 	>>> get_libraries_raw([('libraries', 'lib1, lib2')])
 	['lib1', 'lib2']
 	"""
-	for item in vars:
+	for item in ctxitems:
 		if item[0] == settings.LIB_KEY_NAME:
 			if not '[]' in item[1]:
 				return [lib.strip() for lib in item[1].split(',')]
@@ -92,13 +155,13 @@ def libraries_default(root, ctx):
 		full_path = os.path.abspath(os.path.join(root, path.strip()))
 		for name in os.listdir(full_path):
 			lib_path = os.path.abspath(os.path.join(full_path, name))
-			lib_relpath = lib_path.replace(root, '').lstrip('/') 
+			lib_relpath = lib_path.replace(root, '').lstrip('/')
 			libraries.append(str(lib_relpath))
-	
+
 	lib_relpath = get_local_lib_path(root, 'library.js', ctx)
 	if lib_relpath:
 		libraries.append(lib_relpath)
-	
+
 	return libraries
 
 def convert_dict_values_strings_to_unicode(obj):
@@ -111,57 +174,76 @@ def convert_dict_values_strings_to_unicode(obj):
 			obj[key] = val.encode('utf-8')
 	return obj
 
-
-def get_target_host(context, riurik_url):
+def get_runner_url(context, riurik_url):
 	"""
-	returns http url of target lab to run tests on by host and port values in a context
-	if these values in the context are empry it returns None
-	if host is localhost it returns resolved name
-	>>> get_target_host({}, 'spb123:8000')
+	returns url of the riurik runner to execute tests by host and port values in a context
+	if these values in the context are empty it returns default value: url of the riurik server
+	if host value is localhost it is replaced by resolved name
+	if the use_local_runner option is defined in the context it returns url of the riurik server
+	>>> get_runner_url({}, 'spb123:8000')
 	'spb123:8000'
-	>>> get_target_host({'host': 'host-1'}, 'spb123:8000')	
-	'spb123:8000'
-	>>> get_target_host({'port': 'port-1'}, 'spb123:8000')	
-	'spb123:8000'
-	>>> get_target_host({'host': 'google.com', 'port': '22'}, 'localhost:8000')	
+	>>> get_runner_url({'host': 'google.com', 'port': '22'}, 'localhost:8000')
 	'google.com:22'
+	>>> get_runner_url({'host': 'google.com', 'port': '22', 'use_local_runner': True}, 'spb123:8010')
+	'spb123:8010'
 	>>> from minimock import mock
 	>>> import os
 	>>> mock('socket.gethostname', returns='google.com')
-	>>> get_target_host({'host': 'localhost', 'port': '22'}, 'localhost:8000')	
+	>>> get_runner_url({'host': 'localhost', 'port': '22'}, 'localhost:8000')
 	Called socket.gethostname()
 	'google.com:22'
-	>>> get_target_host({'port': '22'}, 'localhost:22')
+	>>> get_runner_url({'port': '22'}, 'localhost:22')
 	Called socket.gethostname()
 	'google.com:22'
 	"""
 	def replace_localhost(url):
 		return url.replace('localhost', socket.gethostname())
 
+	use_local_runner = context.get('use_local_runner')
+	remote_runner_url = get_runner_from_context(context)
+	if use_local_runner or not remote_runner_url:
+		target = riurik_url
+	else:
+		target = remote_runner_url
+
+	return replace_localhost(target)
+
+def get_runner_from_context(context):
+	"""
+	>>> get_runner_from_context({})
+
+	>>> get_runner_from_context({'host': 'host-1'})
+
+	>>> get_runner_from_context({'port': 'port-1'})
+
+	>>> get_runner_from_context({'host': 'google.com', 'port': '22'})
+	'google.com:22'
+	"""
 	host = context.get('host')
 	port = context.get('port')
 	if host and port:
 		target = '%s:%s' % (host, port)
 	else:
-		target = riurik_url
+		target = None
 
-	return replace_localhost(target)
+	return target
 
 def get_virtual_root(path):
 	"""
-	>>> settings.VIRTUAL_PATHS['some-key'] = 'some-value'
+	>>> import test
+	>>> test.stub('get_virtual_paths', returns={'some-key': 'some-value'})
 	>>> get_virtual_root('/some-key/test-1')
 	'some-key'
 	"""
 	if path:
-		reload(virtual_paths)
 		key = path.strip('/').split('/')[0]
-		if key and key in virtual_paths.VIRTUAL_PATHS:
+		if key and key in get_virtual_paths():
 			return key
 
 def get_document_root(path):
 	"""
-	>>> settings.VIRTUAL_PATHS['some-key'] = 'some-value'
+	>>> import test
+	>>> test.stub('get_virtual_paths', returns={'some-key': 'some-value'})
 	>>> get_document_root('/some-key/test-1')
 	'some-value'
 	>>> get_document_root('some-key')
@@ -174,13 +256,16 @@ def get_document_root(path):
 	if path:
 		reload(virtual_paths)
 		key = path.strip('/').split('/')[0]
-		if key and key in virtual_paths.VIRTUAL_PATHS:
-			return virtual_paths.VIRTUAL_PATHS[key]
-	
+		vpaths = get_virtual_paths()
+		if key and key in vpaths:
+			return vpaths[key]
+
 	return path
 
 def get_full_path(document_root, path):
 	"""
+	>>> import test
+	>>> test.stub('get_virtual_paths', returns={'tests-1': 'C:\\dir-1'})
 	>>> settings.VIRTUAL_PATHS['tests-1'] = 'C:\\dir-1'
 	>>> get_full_path('/dir/dir-1', '')
 	'/dir/dir-1'
@@ -195,46 +280,58 @@ def get_full_path(document_root, path):
 	"""
 	log.debug('get full path %s %s' % (document_root, path))
 	newpath = get_relative_clean_path(path)
-	print newpath
 	return os.path.normpath(os.path.join(document_root, newpath))
 
 def get_relative_clean_path(path):
 	"""
 	removes virtal folder from path
-	>>> settings.VIRTUAL_PATHS['tests-1'] = '/src/tests/cases'
+	>>> import test
+	>>> test.stub('get_virtual_paths', returns={'tests-1': '/src/tests/cases'})
 	>>> get_relative_clean_path('tests-1/main/case-1')
 	'main/case-1'
 	>>> get_relative_clean_path('tests-1/main/')
 	'main'
-	>>> get_relative_clean_path('')
-	''
 	>>> get_relative_clean_path('/')
+	''
+	>>> get_relative_clean_path('')
 	''
 	>>> get_relative_clean_path('main/case-1')
 	''
 	"""
 	if path:
-		reload(virtual_paths)
 		parts = path.replace('\\', '/').strip('/').split('/', 1)
-		print parts, virtual_paths.VIRTUAL_PATHS
-		if parts[0] in virtual_paths.VIRTUAL_PATHS:
+		if parts[0] in get_virtual_paths():
 			if len(parts) > 1:
 				return parts[1].strip('/')
-	return '' 
+	return ''
 
 def get_global_context_lib_path(ctx):
 	"""
-	>>> ctx = {}
-	>>> get_global_context_lib_path(ctx)
-	[]
 	>>> ctx = {'LIBRARY_PATH': 'path1, path2, path3'}
 	>>> get_global_context_lib_path(ctx)
 	['path1', 'path2', 'path3']
 	"""
 	path = ctx.get( 'LIBRARY_PATH' )
-	if path:
-		return [path.strip() for path in path.split(',')]
-	
+	return get_list_value_from_context(path)
+
+def get_context_tools_folders(ctx):
+	"""
+	>>> ctx = {'TOOLS_FOLDERS': 'path1, path2, path3'}
+	>>> get_context_tools_folders(ctx)
+	['path1', 'path2', 'path3']
+	"""
+	folders = ctx.get( 'TOOLS_FOLDERS' )
+	return get_list_value_from_context(folders)
+
+def get_list_value_from_context(value):
+	"""
+	>>> ctx = {}
+	>>> get_list_value_from_context(ctx)
+	[]
+	"""
+	if value:
+		return [value.strip() for value in value.split(',')]
+
 	return []
 
 def get_local_lib_path(root, lib, ctx):
@@ -244,17 +341,12 @@ def get_local_lib_path(root, lib, ctx):
 		return str(current_suite_path.replace(root, '').lstrip('/'))
 
 	return ''
-	
+
 def get_lib_path_by_name(root, lib, ctx):
 	full_path = os.path.abspath(os.path.join(root, lib))
 	lib_relpath = ''
 	if not os.path.exists(full_path):
-		#current_suite_path = os.path.abspath(os.path.join(ctx.get_folder(), lib))
-		#if os.path.exists(current_suite_path):
-		#	log.info('%s lib is located in current suite folder' % lib)
-		#	lib_relpath = current_suite_path.replace(root, '')
 		lib_relpath = get_local_lib_path(root, lib, ctx)
-		#else:
 		if not lib_relpath:
 			for path in get_global_context_lib_path(ctx):
 				global_libs_path = os.path.abspath(os.path.join(root, path.strip(), lib))
@@ -262,26 +354,36 @@ def get_lib_path_by_name(root, lib, ctx):
 					log.info('%s lib is located in the %s global library path' % (lib, path))
 					lib_relpath = global_libs_path.replace(root, '')
 					break
-			
+
 			if not lib_relpath:
 				log.error('%s lib is not found in any available library paths' % lib)
 	else:
 		lib_relpath = lib
-	
-	return str(lib_relpath.lstrip('\\').lstrip('/'))
+
+	return str(lib_relpath.lstrip('\\').lstrip('/').replace('\\','/'))
 
 def enum_suite_tests(target):
 	tests = []
 	for root, dirs, files in os.walk(target):
-		for file in files:
-			if re.match('^.*\.js$', file) and not file.startswith('.'):
-				#if file in exclude:
-				#	continue
-				file_abspath = os.path.abspath(os.path.join(root, file))
+		for file_ in files:
+			if re.match('^.*\.js$', file_) and not file_.startswith('.'):
+				file_abspath = os.path.abspath(os.path.join(root, file_))
 				file_relpath = file_abspath.replace(os.path.abspath(target), '').lstrip('/').lstrip('\\')
 				tests += [ str(file_relpath) ]
 
 	return tests
+
+def enum_files_in_folders(target, filter=(lambda file_: file_.startswith('.'))):
+	all_files = []
+	for root, dirs, files in os.walk(target):
+		for file_ in files:
+			#if re.match('^.*\.js$', file_) and not file_.startswith('.'):
+			if not filter(file_):
+				file_abspath = os.path.abspath(os.path.join(root, file_))
+				file_relpath = file_abspath.replace(os.path.abspath(target), '').lstrip('/').lstrip('\\')
+				all_files += [ str(file_relpath) ]
+
+	return all_files
 
 def patch_fullpaths(fullpath, newpath=''):
 	reload(virtual_paths)
@@ -290,11 +392,10 @@ def patch_fullpaths(fullpath, newpath=''):
 		if m:
 			fullpath = virtual_paths.VIRTUAL_URLS[key] + m.group(1)
 			return fullpath
-	
+
 	return fullpath
 
 def getHostByName(host, cache):
-	import socket
 	r = socket.gethostbyname(host)
 	cache.set(host, r)
 	return r
@@ -306,12 +407,11 @@ def resolveRemoteAddr(host, cache):
 		log.info('%s addr is resolved: %s' % (str(host), str(addr)))
 	else:
 		log.info('%s addr is got from cach: %s' % (str(host), str(addr)))
-		
+
 	return addr
 
 def normpath(path):
 	return path.replace('\\', '/')
 
 def localhost(host):
-	import socket
 	return host == 'localhost' or host == socket.gethostname()

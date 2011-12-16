@@ -1,16 +1,16 @@
-import os, re, simplejson
+import os, re
 from logger import log
 import settings, config, contrib
 from django.template import Context, Template
 import socket
 from django.core.cache import cache
-		
+
 def host(instance, resolve=True):
 	key = 'host'
 	if resolve:
 		return contrib.resolveRemoteAddr(instance.get(key), cache)
 	return instance.get(key)
-		
+
 def get(name, section='default'):
 	return context(name, section)
 
@@ -26,7 +26,7 @@ def get_URL(instance, resolve=False):
 	return url
 
 def render(path, ctx):
-	vars = patch(path, ctx)
+	ctxitems = patch(path, ctx)
 	t = Template("""{% load json_tags %}
 		var context = {
 			{% for option in options %}
@@ -34,79 +34,61 @@ def render(path, ctx):
 			{% endfor %}
 		};
 	""")
-	c = Context();
+	c = Context()
 	c['options'] = []
-	for name, value in vars:
+	for name, value in ctxitems:
 		c['options'] += [ (name, value,), ]
 	return t.render(c)
 
 def render_ini(path, ctx, section_name='default'):
-	vars = patch(path, ctx)
+	ctxitems = patch(path, ctx)
 	t = Template("""{% load json_tags %}
 [{{ section }}]
 {% for option in options %}{{ option.0 }} = {{ option.1|json }}{% if option.2 %} ; {{ option.2 }}{% endif %}
 {% endfor %}""")
-	c = Context();
+	c = Context()
 	c['section'] = section_name
 	c['options'] = []
-	for name, value in vars:
+	for name, value in ctxitems:
 		c['options'] += [ (name, value, hasattr(value, 'comment')), ]
 	return t.render(c)
 
-def patch_libraries(path, vars, ctx):
-	libraries = contrib.get_libraries_impl(path, vars, ctx)
+def patch_libraries(path, ctximpl, ctx):
+	libraries = contrib.get_libraries_impl(path, ctximpl.as_items(), ctx)
 	log.info('libs are %s' % libraries)
 	if libraries != None:
-		vars_as_list = [var for var in list(vars) if var[0] != settings.LIB_KEY_NAME]
-		return tuple(vars_as_list + [ (settings.LIB_KEY_NAME, str(libraries).replace('\'','\"')) ])
+		ctximpl.replace(settings.LIB_KEY_NAME, str(libraries).replace('\'','\"'))
 
-	return vars
-
-def start_time(vars):
-	vars = list(vars)
+def add_start_time(ctximpl):
 	import time
 	now = time.localtime(time.time())
-	vars.append(('test_start_time', time.mktime(now)))
-	return tuple(vars)
+	ctximpl.add('test_start_time', time.mktime(now))
 
 def patch(path, ctx):
-	vars = ctx.items()
-	hasInclude = False
-	hasExclude = False
-	localhost = False
-	for i,v in vars:
-		if i == 'include':
-			hasInclude = True
-		
-		if i == 'exclude':
-			hasExclude = True
-			
-		if i == 'host' and v == 'localhost':
-			localhost = True
-			
-	if not hasInclude:
+	ctximpl = contrib.context_impl(ctx.items())
+	if not ctximpl.has(settings.INCLUDE_KEY):
 		exclude = []
-		if hasExclude:
-			exclude = simplejson.loads(ctx.get( option='exclude' ))
+		if ctximpl.has(settings.EXCLUDE_KEY):
+			exclude = contrib.loadListFromString(ctx.get( option=settings.EXCLUDE_KEY ))
 		include = []
 		for root, dirs, files in os.walk(ctx.get_folder()):
-			for file in files:
-				if re.match('^.*\.js$', file) and not file.startswith('.'):
-					if file in exclude:
+			for file_ in files:
+				if re.match('^.*\.js$', file_) and not file_.startswith('.'):
+					if file_ in exclude:
 						continue
-					file_abspath = os.path.abspath(os.path.join(root, file))
+					file_abspath = os.path.abspath(os.path.join(root, file_))
 					file_relpath = file_abspath.replace(os.path.abspath(ctx.get_folder()), '').lstrip('/').lstrip('\\')
 					include += [ str(file_relpath) ]
-		vars = tuple(list(vars) + [ ('include', str(include).replace('\'','\"')) ])
-		
-	vars = patch_libraries(path, vars, ctx)
-	vars = start_time(vars)
-	if localhost:
-		vars = list(vars)
-		vars.remove(('host', 'localhost'))
-		vars = tuple( vars + [ ('host', socket.gethostname()) ] )
+	else:
+		include = contrib.loadListFromString(ctx.get( option=settings.INCLUDE_KEY ))
 
-	return vars
+	ctximpl.replace(settings.INCLUDE_KEY, str(include).replace('\'','\"'))
+
+	patch_libraries(path, ctximpl, ctx)
+	add_start_time(ctximpl)
+	ctximpl.replace_if('host', socket.gethostname(), 'localhost')
+
+	return ctximpl.as_tuple()
 
 class global_settings(object):
 	comment = 'from global settings'
@@ -118,32 +100,32 @@ class global_settings(object):
 			if virtpath in path:
 				self.inifile = os.path.join(virtpath, '.settings.ini')
 		self.section = section
-	
+
 	def get(self, option, default=None):
 		value = config.get(self.inifile, self.section, option)
 		log.debug('get context option: %s=%s from %s' % (option, value, self.inifile))
 		if not value:
 			value = default
-		
+
 		return value
-	
+
 	def set(self, option, value):
 		config.set(self.inifile, self.section, option, value)
 		log.debug('set context option: %s=%s' % (option, value))
 
-	def items(self, vars=None):
+	def items(self, vars_=None):
 		log.debug('context get items: %s, section: %s' % (self.inifile, self.section))
-		return config.items(self.inifile, self.section, vars)
-	
+		return config.items(self.inifile, self.section, vars_)
+
 	def __patch_values(self, vals):
-		if not vals: return 
-		for k, v in vals:
-			yield k,v, self.comment
+		if vals:
+			for k, v in vals:
+				yield k, v, self.comment
 
 	def sections(self):
 		log.debug('reading sections: %s' % config.sections(self.inifile))
 		return config.sections(self.inifile)
-	
+
 	def get_folder(self):
 		return os.path.dirname(self.inifile)
 
@@ -167,7 +149,7 @@ class context(global_settings):
 		if not value:
 			value = default
 		return value
-	
+
 	def libraries(self, values):
 		gs = global_settings(self.inifile).items() or {}
 		for item in gs:
