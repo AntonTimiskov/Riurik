@@ -1,23 +1,23 @@
 from django.shortcuts import render_to_response as _render_to_response
 from django.template.loader import render_to_string
 from django.template import loader, RequestContext, Context, Template, TemplateDoesNotExist
-from django.http import Http404, HttpResponse, HttpResponseRedirect, HttpResponseNotModified, HttpRequest
+from django.http import Http404, HttpResponse, HttpResponseRedirect, HttpRequest
 from django.utils.http import http_date
 from django.core.cache import cache
 import django.views.static
-import traceback, sys, os, re
+import os, re
 import dir_index_tools as tools
 import simplejson
 import django.conf
 import settings
 from logger import log
-import context, config
-import mimetypes, random, posixpath, datetime
+import context, config, contrib
+import mimetypes, datetime
 import stat
-import contrib
 import urllib, urllib2
 import codecs, time
 import virtual_paths
+import distributor
 
 def error_handler(fn):
 	def _f(*args, **kwargs):
@@ -40,16 +40,12 @@ def error_handler(fn):
 
 def enumerate_suites(request):
 	"""
-		Return a list of suite names.
-		Arguments:
-			context	(optional)	- filter suites containing supplied context name
-			json 	(optional)	- return result in JSON format
+	Return a list of suite names.
+	Arguments:
+		ctx	(optional)	- filter suites containing supplied ctx name
+		json 	(optional)	- return result in JSON format
 	"""
-	from django.http import HttpResponse
-	from context import get as context_get
-	import contrib
-
-	context = request.REQUEST.get('context', None)
+	ctx_name = request.REQUEST.get('ctx', None)
 	json = request.REQUEST.get('json', False)
 	target = request.REQUEST.get('target', False)
 
@@ -58,16 +54,17 @@ def enumerate_suites(request):
 	contextini = settings.TEST_CONTEXT_FILE_NAME
 
 	for dirpath, dirnames, filenames in os.walk(root, followlinks=True):
-		if not ( contextini in filenames ): continue
-		if context:
+		if not ( contextini in filenames ):
+			continue
+		if ctx_name:
 			contextfile = os.path.join(dirpath, contextini)
-			ctx = context_get(contextfile)
+			ctx = context.get(contextfile)
 			ctx_sections = ctx.sections()
-			if not context in ctx_sections: continue
+			if not ctx in ctx_sections:
+				continue
 		suites += [ dirpath.replace(root, '').replace('\\','/').lstrip('/') ]
 
 	if json:
-		import simplejson
 		return HttpResponse(simplejson.dumps(suites))
 	return HttpResponse(str(suites).replace('[','').replace(']','').rstrip(',').replace('\'',''))
 
@@ -112,7 +109,7 @@ def serve(request, path, show_indexes=False):
 
 	return get_file_content(fullpath)
 
-def get_file_content_to_edit(path, fullpath, is_stubbed):
+def get_file_content_to_edit(path, fullpath, stubbed):
 	try:
 		contexts = context.get( fullpath ).sections()
 	except Exception, e:
@@ -126,7 +123,7 @@ def get_file_content_to_edit(path, fullpath, is_stubbed):
 		'content': content,
 		'contexts': contexts,
 		'relative_file_path': path,
-		'is_stubbed': is_stubbed,
+		'is_stubbed': stubbed,
 		'favicon'   : 'dir-index-test.gif',
 		'filetype':  tools.get_type(fullpath),
 	}
@@ -164,8 +161,8 @@ def get_dir_index(document_root, path, fullpath):
 		pagetype = 'front-page'
 		reload(virtual_paths)
 		for key in virtual_paths.VIRTUAL_PATHS:
-			dir = get_descriptor(key)
-			dirs.append(dir)
+			dir_descriptor = get_descriptor(key)
+			dirs.append(dir_descriptor)
 	else:
 		pagetype = tools.get_type(fullpath)
 		for f in sorted(os.listdir(fullpath)):
@@ -258,7 +255,7 @@ def createFolder(request, fullpath):
 @add_fullpath
 def removeObject(request, fullpath):
 	log.debug('removeObject: ' + fullpath)
-	result = tools.remove(fullpath)
+	tools.remove(fullpath)
 	redirect = '/' + request.POST["url"].lstrip('/')
 	return HttpResponseRedirect(redirect)
 
@@ -294,33 +291,18 @@ def createTest(request, fullpath):
 
 @add_fullpath
 def saveTest(request, fullpath):
-	print 'saving', fullpath
 	if fullpath == 'settings':
 		fullpath = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'virtual_paths.py')
 	url = request.POST["url"].lstrip('/')
 	stub(url, request)
-	result = tools.savetest(request.POST["content"], fullpath)
+	tools.savetest(request.POST["content"], fullpath)
 	return HttpResponseRedirect('/' + url + '?editor')
 
-@add_fullpath
-def saveDraftTest(request, fullpath):
-	saveTest(request)
-	return HttpResponse()
-
 def submitTest(request):
-	testname = request.POST["path"]
-	url = request.POST["url"]
-	context = request.POST["context"]
-	content = request.POST.get("content", '')
-
-	return _render_to_response( "runtest.html", locals() )
+	return _render_to_response( "runtest.html", request.POST )
 
 def submitSuite(request):
-	suite = request.POST["path"]
-	url = request.POST["url"]
-	context = request.POST["context"]
-
-	return _render_to_response( "runsuite.html", locals() )
+	return _render_to_response( "runsuite.html", request.POST )
 
 @add_fullpath
 @error_handler
@@ -340,8 +322,8 @@ def runSuite(request, fullpath):
 	if contrib.target_is_remote( target, request.get_host()):
 		url = "http://%s/%s" % (target, settings.UPLOAD_TESTS_CMD)
 		saveRemoteContext(clean_path, contextjs, url, ctx)
-		saveSuiteAllTests(url, path, ctx)
-		saveTestSatelliteScripts(url, path, ctx)
+		distributor.saveSuiteAllTests(url, path, ctx)
+		distributor.saveTestSatelliteScripts(url, path, ctx)
 		url = "http://%s/%s?suite=/%s" % ( target, settings.EXEC_TESTS_CMD, clean_path )
 	else:
 		saveLocalContext(fullpath, contextjs)
@@ -373,8 +355,8 @@ def runTest(request, fullpath):
 		log.debug('TARGET: %s, %s' % ( target, request.get_host() ))
 		url = "http://%s/%s" % (target, settings.UPLOAD_TESTS_CMD)
 		saveRemoteContext(os.path.dirname(clean_path), contextjs, url, ctx)
-		saveTestSatelliteScripts(url, path, ctx)
-		sendContentToRemote(clean_path, request.REQUEST.get("content", open(fullpath, 'r').read()), url, ctx)
+		distributor.saveTestSatelliteScripts(url, path, ctx)
+		distributor.sendContentToRemote(clean_path, request.REQUEST.get("content", open(fullpath, 'r').read()), url, ctx)
 		url = "http://%s/%s?path=/%s" % (target, settings.EXEC_TESTS_CMD, clean_path)
 	else:
 		saveLocalContext(fullpath, contextjs)
@@ -392,92 +374,10 @@ def saveLocalContext(fullpath, contextjs):
 	f.write(contextjs)
 	f.close()
 
-def makeSaveContentPost(content, path):
-	data = {
-		'content': content,
-		'path': path
-	}
-	return contrib.convert_dict_values_strings_to_unicode(data)
-
-def saveSuiteAllTests(url, path, ctx):
-	document_root = contrib.get_document_root(path)
-	tests = contrib.enum_suite_tests( contrib.get_full_path(document_root, path) )
-	log.info('save suite tests for: %s' % path)
-
-	for test in tests:
-		test_path = os.path.join(path, test)
-		fullpath = contrib.get_full_path(document_root, test_path)
-		clean_path = contrib.get_relative_clean_path(test_path)
-		result = uploadContentToRemote(url, fullpath, clean_path, ctx)
-		log.info("test %s is saved: %s" % (test_path, result))
-
-def saveToolsAllScripts(url, document_root, virtual_root, ctx):
-	for tools_dir in contrib.get_context_tools_folders(ctx):
-		log.info('save tools folder: %s' % tools_dir)
-		virtual_path = os.path.join(virtual_root, tools_dir)
-		tools_dir_fullpath = contrib.get_full_path(document_root, virtual_path)
-		for file_ in contrib.enum_files_in_folders(tools_dir_fullpath):
-			file_path = os.path.join(virtual_path, file_)
-			fullpath = contrib.get_full_path(document_root, file_path)
-			clean_path = contrib.get_relative_clean_path(file_path)
-			result = uploadContentToRemote(url, fullpath, clean_path, ctx)
-			log.info("tools script %s is saved: %s" % (file_path, result))
-
-def saveTestSatelliteScripts(url, path, ctx):
-	"""
-	uploads scripts those the test depends on
-	"""
-	document_root = contrib.get_document_root(path)
-	virtual_root = contrib.get_virtual_root(path)
-	log.info('save satellite scripts for: %s' % path)
-
-	for lib in contrib.get_libraries(path, ctx):
-		lib_relpath = contrib.get_lib_path_by_name(document_root, lib, ctx)
-		if lib_relpath:
-			lib_path = os.path.join(virtual_root, lib_relpath)
-			fullpath = contrib.get_full_path(document_root, lib_path)
-			result = uploadContentToRemote(url, fullpath, lib_relpath, ctx)
-			log.info("library %s is saved: %s" % (lib_relpath, result))
-
-	saveToolsAllScripts(url, document_root, virtual_root, ctx)
-
-def uploadContentToRemote(url, fullpath, path, ctx):
-	log.debug('upload content %s', fullpath)
-	content = tools.gettest(fullpath)
-	return sendContentToRemote(path, content, url, ctx)
-
 def saveRemoteContext(path, content, url, ctx):
 	contextjs_path = os.path.join(path, settings.TEST_CONTEXT_JS_FILE_NAME)
 	log.info('save %s context' % path)
-	sendContentToRemote(contextjs_path, content, url, ctx)
-
-def sendContentToRemote(path, content, url, ctx):
-	data = makeSaveContentPost(content, path)
-	auth(url, ctx)
-	post = urllib.urlencode(data)
-	req = urllib2.Request(url, post)
-	try:
-		return  urllib2.urlopen(req).read()
-	except urllib2.URLError, e:
-		if hasattr(e, 'reason'):
-			raise urllib2.URLError('%s %s' % (e.reason, url))
-		raise
-
-def auth(url, ctx):
-	login = ctx.get('login')
-	password = ctx.get('password')
-	empty_proxy_handler = urllib2.ProxyHandler({})
-	if login and password:
-		from ntlm import HTTPNtlmAuthHandler
-
-		passman = urllib2.HTTPPasswordMgrWithDefaultRealm()
-		passman.add_password(None, url, login, password)
-		auth_NTLM = HTTPNtlmAuthHandler.HTTPNtlmAuthHandler(passman)
-		opener = urllib2.build_opener(auth_NTLM, empty_proxy_handler)
-	else:
-		opener = urllib2.build_opener(empty_proxy_handler)
-
-	urllib2.install_opener(opener)
+	distributor.sendContentToRemote(contextjs_path, content, url, ctx)
 
 def recvLogRecords(request):
 	from logger import FILENAME, DJANGO_APP, timeFormat
@@ -497,7 +397,7 @@ def recvLogRecords(request):
 			log.debug('find log records those were made after %s' % since_time)
 			result = getLogRecordsSinceGivenTime(records, timeFormat, epoch_sec)
 		else:
-			result = getLastLogRecordTime(records, timeFormat);
+			result = getLastLogRecordTime(records, timeFormat)
 			log.debug('find last log record time: %s' % result)
 	else:
 		log.debug('find last 100 log records')
@@ -508,8 +408,7 @@ def recvLogRecords(request):
 
 	return response
 
-def getLastLogRecordTime(records, format):
-	import re
+def getLastLogRecordTime(records, format_):
 	result = None
 	lines = records.split('\n')
 	regex = re.compile("\d\d\d\d-\d\d-\d\d \d\d:\d\d:\d\d")
@@ -517,12 +416,11 @@ def getLastLogRecordTime(records, format):
 		line = lines[i]
 		m = regex.match(line)
 		if m:
-			result = time.mktime(time.strptime(m.group(), format))
+			result = time.mktime(time.strptime(m.group(), format_))
 			break
 	return result
 
-def getLogRecordsSinceGivenTime(records, format, sinse_time):
-	import re
+def getLogRecordsSinceGivenTime(records, format_, sinse_time):
 	result = []
 	lines = records.split('\n')
 	regex = re.compile("\d\d\d\d-\d\d-\d\d \d\d:\d\d:\d\d")
@@ -532,7 +430,7 @@ def getLogRecordsSinceGivenTime(records, format, sinse_time):
 		log.debug(line)
 		m = regex.match(line)
 		if m:
-			t = time.mktime(time.strptime(m.group(), format))
+			t = time.mktime(time.strptime(m.group(), format_))
 			if float( t ) < sinse_time:
 				break
 			result.append(line)
@@ -604,8 +502,7 @@ def getOpenedFiles(request, clean=False):
 	if not 'stub_key' in request.session:
 		return files
 	key = str(request.session['stub_key'])
-	print 'all session', request.session.items()
-	for i,v in request.session.items():
+	for i, v in request.session.items():
 		if i != 'stub_key' and str(v) == key:
 			files += [ i ]
 			try:
@@ -621,7 +518,6 @@ def live_settings_json(request, content=None):
 	settings_fullpath = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'virtual_paths.py')
 	if not content:
 		content = open(settings_fullpath, 'r').read()
-	print content
 	descriptor = {
 		'directory': '/settings',
 		'content': content,
@@ -649,7 +545,7 @@ def live_settings_save(request):
 		return path
 
 	def checkSyntax(content):
-		import os, py_compile
+		import py_compile
 		path = saveTemp(content)
 		try:
 			py_compile.compile(path, path+'c', path+'d', True)
@@ -666,7 +562,7 @@ def live_settings_save(request):
 		descriptor.update({ 'error': 'File got a syntax error' })
 		return _render_to_response('configure.html', descriptor, context_instance=RequestContext(request))
 
-	result = tools.savetest(request.POST["content"], fullpath)
+	tools.savetest(request.POST["content"], fullpath)
 	return HttpResponseRedirect('/settings')
 
 
