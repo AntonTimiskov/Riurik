@@ -7,7 +7,7 @@ from django.core.cache import cache
 import django.views.static
 import os, re
 import dir_index_tools as tools
-import simplejson
+import json
 import django.conf
 import settings
 from logger import log
@@ -45,8 +45,8 @@ def enumerate_suites(request):
 		ctx	(optional)	- filter suites containing supplied ctx name
 		json 	(optional)	- return result in JSON format
 	"""
-	ctx_name = request.REQUEST.get('ctx', None)
-	json = request.REQUEST.get('json', False)
+	ctx_name = request.REQUEST.get('context', None)
+	as_json = request.REQUEST.get('json', False)
 	target = request.REQUEST.get('target', False)
 
 	suites = []
@@ -60,12 +60,13 @@ def enumerate_suites(request):
 			contextfile = os.path.join(dirpath, contextini)
 			ctx = context.get(contextfile)
 			ctx_sections = ctx.sections()
-			if not ctx in ctx_sections:
+			if not ctx_name in ctx_sections:
 				continue
-		suites += [ dirpath.replace(root, '').replace('\\','/').lstrip('/') ]
 
-	if json:
-		return HttpResponse(simplejson.dumps(suites))
+			suites += [ dirpath.replace(root, '').replace('\\','/').lstrip('/') ]
+
+	if as_json:
+		return HttpResponse(json.dumps(suites))
 	return HttpResponse(str(suites).replace('[','').replace(']','').rstrip(',').replace('\'',''))
 
 def show_context(request, path):
@@ -78,7 +79,7 @@ def show_context(request, path):
 	sections = config.sections(context.get(fullpath).inifile)
 	for section_name in sections:
 		ctx = context.get(fullpath, section=section_name)
-		context_ini = context.render_ini(path, ctx, section_name)
+		context_ini = context.render_ini(path, ctx, request.get_host(), section_name)
 		result += context_ini
 
 	return HttpResponse(result)
@@ -265,7 +266,7 @@ def createSuite(request, fullpath):
 	result['success'], result['result'] = tools.mkcontext(fullpath, request.POST["object-name"])
 	result['result'] += '?editor'
 	response = HttpResponse(mimetype='text/json')
-	response.write(simplejson.dumps(result))
+	response.write(json.dumps(result))
 
 	return response
 
@@ -285,7 +286,7 @@ def createTest(request, fullpath):
 	result['result'] += '?editor'
 	log.debug('createTest results: %s' % result)
 	response = HttpResponse(mimetype='text/json')
-	response.write(simplejson.dumps(result))
+	response.write(json.dumps(result))
 
 	return response
 
@@ -312,23 +313,24 @@ def runSuite(request, fullpath):
 	ctx = context.get(fullpath, section=context_name)
 
 	log.info('run suite %s with context %s' % (path, context_name))
-
-	contextjs = context.render(path, ctx)
+	server = request.get_host();
+	contextjs = context.render(path, ctx, server)
 
 	clean_path = contrib.get_relative_clean_path(path)
-	target = contrib.get_runner_url(ctx, request.get_host())
+	target = contrib.get_runner_url(ctx, server)
 	log.info('target of suite %s is %s' % (clean_path, target))
 
-	if contrib.target_is_remote( target, request.get_host()):
-		url = "http://%s/%s" % (target, settings.UPLOAD_TESTS_CMD)
-		saveRemoteContext(clean_path, contextjs, url, ctx)
-		distributor.saveSuiteAllTests(url, path, ctx)
-		distributor.saveTestSatelliteScripts(url, path, ctx)
-		url = "http://%s/%s?suite=/%s" % ( target, settings.EXEC_TESTS_CMD, clean_path )
-	else:
-		saveLocalContext(fullpath, contextjs)
-		url = "http://%s/%s?suite=/%s" % ( target, settings.EXEC_TESTS_CMD, clean_path )
-
+	#if contrib.target_is_remote( target, server):
+	#	url = "http://%s/%s" % (target, settings.UPLOAD_TESTS_CMD)
+	#	saveRemoteContext(clean_path, contextjs, url, ctx)
+	#	distributor.saveSuiteAllTests(url, path, ctx)
+	#	distributor.saveTestSatelliteScripts(url, path, ctx)
+	#	url = "http://%s/%s?suite=/%s" % ( target, settings.EXEC_TESTS_CMD, clean_path )
+	#else:
+	#	saveLocalContext(fullpath, contextjs)
+	#	url = "http://%s/%s?suite=/%s" % ( target, settings.EXEC_TESTS_CMD, clean_path )
+	saveLocalContext(fullpath, contextjs)
+	url = "http://%s/%s?server=%s&suite=/%s" % ( target, settings.EXEC_TESTS_CMD, server, path )
 	log.info("redirect to run suite %s" % url)
 	return HttpResponseRedirect( url )
 
@@ -340,28 +342,29 @@ def runTest(request, fullpath):
 	ctx = context.get(fullpath, section=context_name)
 
 	log.info('run test %s with context %s' % (path, context_name))
-
-	contextjs = context.render(path, ctx)
+	server = request.get_host()
+	contextjs = context.render(path, ctx, server)
 	log.debug('contextJS: '+ contextjs)
 
 	clean_path = contrib.get_relative_clean_path(path)
-	target = contrib.get_runner_url(ctx, request.get_host())
+	target = contrib.get_runner_url(ctx, server)
 	log.info('target of test %s is %s' % (clean_path, target))
 
-	test_content = request.REQUEST.get('content', None)
-	tools.savetest(test_content, fullpath)
+	tools.savetest(request.REQUEST.get('content', None), fullpath)
+	test_content = request.REQUEST.get("content", open(fullpath, 'r').read())
 
-	if contrib.target_is_remote( target, request.get_host()):
-		log.debug('TARGET: %s, %s' % ( target, request.get_host() ))
-		url = "http://%s/%s" % (target, settings.UPLOAD_TESTS_CMD)
-		saveRemoteContext(os.path.dirname(clean_path), contextjs, url, ctx)
-		distributor.saveTestSatelliteScripts(url, path, ctx)
-		distributor.sendContentToRemote(clean_path, request.REQUEST.get("content", open(fullpath, 'r').read()), url, ctx)
-		url = "http://%s/%s?path=/%s" % (target, settings.EXEC_TESTS_CMD, clean_path)
-	else:
-		saveLocalContext(fullpath, contextjs)
-		url = "http://%s/%s?path=/%s" % (target, settings.EXEC_TESTS_CMD, clean_path)
-
+	#if contrib.target_is_remote( target, server):
+	#	log.debug('TARGET: %s, %s' % ( target, server ))
+	#	url = "http://%s/%s" % (target, settings.UPLOAD_TESTS_CMD)
+	#	saveRemoteContext(os.path.dirname(clean_path), contextjs, url, ctx)
+	#	distributor.saveTestSatelliteScripts(url, path, ctx)
+	#	distributor.sendContentToRemote(clean_path, test_content, url, ctx)
+	#	url = "http://%s/%s?path=/%s" % (target, settings.EXEC_TESTS_CMD, clean_path)
+	#else:
+	#	saveLocalContext(fullpath, contextjs)
+	#	url = "http://%s/%s?path=/%s" % (target, settings.EXEC_TESTS_CMD, clean_path)
+	saveLocalContext(fullpath, contextjs)
+	url = "http://%s/%s?server=%s&path=/%s" % (target, settings.EXEC_TESTS_CMD, server, path)
 	log.info("redirect to run test %s" % url)
 	return HttpResponseRedirect(url)
 
@@ -544,6 +547,12 @@ def live_settings_save(request):
 		f.close()
 		return path
 
+	def clean(path):
+		try:
+			if os.path.exists(path): os.remove(path)
+		except Exception, e:
+			log.debug(e)
+
 	def checkSyntax(content):
 		import py_compile
 		path = saveTemp(content)
@@ -553,9 +562,9 @@ def live_settings_save(request):
 		except:
 			return False
 		finally:
-			if os.path.exists(path): os.remove(path)
-			if os.path.exists(path+'c'): os.remove(path+'c')
-			if os.path.exists(path+'d'): os.remove(path+'d')
+			clean(path)
+			clean(path+'c')
+			clean(path+'d')
 
 	if not checkSyntax( content ):
 		descriptor = live_settings_json(request, content)

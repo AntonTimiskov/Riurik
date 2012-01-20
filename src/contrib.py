@@ -4,6 +4,41 @@ import settings, virtual_paths
 from logger import log
 import socket
 
+def parseURI(url):
+	"""
+	>>> parseURI('spb9914')
+	('spb9914', '80')
+	>>> import os, test
+	>>> test.stub('socket.gethostname', returns='spb9914')
+	>>> parseURI('localhost:8000')
+	('spb9914', '8000')
+	"""
+	hostport = url.split(':')
+	host = hostport[0] if hostport[0] != 'localhost' else socket.gethostname()
+	return host, hostport[1] if len(hostport) > 1 else '80'
+
+def patch_host_port(ctximpl, riurik_url):
+	"""
+	>>> ci = context_impl([])
+	>>> patch_host_port(ci, 'spb9914:8000')
+	>>> ci.get('host')
+	'spb9914'
+	>>> ci.get('port')
+	'8000'
+	>>> import os, test
+	>>> test.stub('socket.gethostname', returns='google.ru')
+	>>> ci = context_impl([('host', 'localhost'), ('port', '1')])
+	>>> patch_host_port(ci, 'spb9914')
+	>>> ci.get('host')
+	'google.ru'
+	"""
+	if ctximpl.has('host') and ctximpl.has('port'):
+		ctximpl.replace_if('host', socket.gethostname(), 'localhost')
+	else:
+		host, port = parseURI(riurik_url)
+		ctximpl.add('host', host)
+		ctximpl.add('port', port)
+
 class context_impl():
 
 	def __init__(self, items):
@@ -18,11 +53,7 @@ class context_impl():
 		>>> ci.has('port')
 		False
 		"""
-		for i, v in self.items:
-			if i == key:
-				return True
-
-		return False
+		return self.as_items().has_key(key)
 
 	def check(self, key, value):
 		"""
@@ -68,6 +99,10 @@ class context_impl():
 		except ValueError, e:
 			log.error(e)
 
+	def get(self, key):
+		if self.has(key):
+			return self.as_items()[key]
+
 	def add(self, key, value):
 		self.items_as_list.append((key, value))
 
@@ -78,7 +113,14 @@ class context_impl():
 			self.items_as_list.remove((key, value))
 
 	def as_items(self):
-		return self.items
+		items = {}
+		for item in self.items_as_list:
+			items[item[0]] = item[1]
+
+		return items
+
+	def as_list(self):
+		return self.items_as_list
 
 	def as_tuple(self):
 		return tuple(self.items_as_list)
@@ -110,7 +152,7 @@ def target_is_remote(target, host):
 	if not 'localhost' in target		\
 		and not 'localhost' in host and	\
 		host.lower() != target.lower():
-			return True
+		return True
 
 	return False
 
@@ -125,12 +167,12 @@ def get_libraries_impl(path, ctxitems, ctx):
 	log.info('libs are %s' % libs)
 	if libs != None:
 		for lib in libs:
-			lib_path = get_lib_path_by_name(root, lib, ctx)
+			lib_path = get_lib_path_by_name(path, lib, ctx)
 			if lib_path:
 				libraries.append(lib_path)
 		if not libraries:
 			log.info('there are no precofigured libs to include, try defaults ...')
-			libraries = libraries_default(root, ctx)
+			libraries = libraries_default(path, ctx)
 
 	return libraries
 
@@ -142,9 +184,10 @@ def get_libraries_raw(ctxitems):
 	>>> get_libraries_raw([])
 	[]
 	>>> get_libraries_raw([('libraries', '[]')])
+
 	>>> get_libraries_raw([('key', 'value')])
 	[]
-	>>> get_libraries_raw([('libraries', 'lib1, lib2')])
+	>>> get_libraries_raw([('key', 'value'), ('libraries', 'lib1, lib2')])
 	['lib1', 'lib2']
 	"""
 	for item in ctxitems:
@@ -155,18 +198,19 @@ def get_libraries_raw(ctxitems):
 				return None
 	return []
 
-def libraries_default(root, ctx):
+def libraries_default(path, ctx):
 	libraries = []
-
+	root = get_document_root(path)
+	virtual_root = get_virtual_root(path)
 	lib_paths = get_global_context_lib_path(ctx)
-	for path in lib_paths:
-		full_path = os.path.abspath(os.path.join(root, path.strip()))
+	for lib_path in lib_paths:
+		full_path = os.path.abspath(os.path.join(root, lib_path.strip()))
 		for name in os.listdir(full_path):
 			lib_path = os.path.abspath(os.path.join(full_path, name))
-			lib_relpath = lib_path.replace(root, '').lstrip('/')
+			lib_relpath = lib_path.replace(root, virtual_root).lstrip('/')
 			libraries.append(str(lib_relpath))
 
-	lib_relpath = get_local_lib_path(root, 'library.js', ctx)
+	lib_relpath = get_local_lib_path(path, settings.LIB_DEFAULT_NAME, ctx)
 	if lib_relpath:
 		libraries.append(lib_relpath)
 
@@ -342,25 +386,29 @@ def get_list_value_from_context(value):
 
 	return []
 
-def get_local_lib_path(root, lib, ctx):
-	current_suite_path = os.path.abspath(os.path.join(ctx.get_folder(), lib))
+def get_local_lib_path(path, lib_name, ctx):
+	root = get_document_root(path)
+	virtual_root = get_virtual_root(path)
+	current_suite_path = os.path.abspath(os.path.join(ctx.get_folder(), lib_name))
 	if os.path.exists(current_suite_path):
-		log.info('%s lib is located in current suite folder' % lib)
-		return str(current_suite_path.replace(root, '').lstrip('/'))
+		log.info('%s lib is located in current suite folder' % lib_name)
+		return str(current_suite_path.replace(root, virtual_root).lstrip('/'))
 
 	return ''
 
-def get_lib_path_by_name(root, lib, ctx):
+def get_lib_path_by_name(path, lib, ctx):
+	root = get_document_root(path)
+	virtual_root = get_virtual_root(path)
 	full_path = os.path.abspath(os.path.join(root, lib))
 	lib_relpath = ''
 	if not os.path.exists(full_path):
-		lib_relpath = get_local_lib_path(root, lib, ctx)
+		lib_relpath = get_local_lib_path(path, lib, ctx)
 		if not lib_relpath:
 			for path in get_global_context_lib_path(ctx):
 				global_libs_path = os.path.abspath(os.path.join(root, path.strip(), lib))
 				if os.path.exists(global_libs_path):
 					log.info('%s lib is located in the %s global library path' % (lib, path))
-					lib_relpath = global_libs_path.replace(root, '')
+					lib_relpath = global_libs_path.replace(root, virtual_root)
 					break
 
 			if not lib_relpath:
