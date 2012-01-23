@@ -30,7 +30,7 @@ var frame = {
 			$('#frame-url').html('<a href="'+url+'">'+url+'</a>');
 			$('#frame').load(function() {
 				var __frame = window.frames[0];
-				__frame.window.onerror = onerror;
+				//__frame.window.onerror = onerror;
 
 				if( ! __frame.window.jQuery ) {
 					// inject one
@@ -474,6 +474,8 @@ riurik.init = function() {
 }
 
 QUnit.begin = function() {
+	QUnit.config.autostart = false;
+	QUnit.config.reorder = false;
 	QUnit.log('tests are begun');
 	riurik.init();
 	riurik.load();
@@ -637,19 +639,19 @@ QUnit.log('QUnit console: initialized');
 QUnit.config.reorder = false;
 
 QUnit.setup = function(callback) {
-	QUnit.test('setup', 0, callback, false);
+	QUnit.test('setup', null, callback, false);
 }
 
 QUnit.asyncSetup = function(callback) {
-	QUnit.test('setup', 0, callback, true);
+	QUnit.test('setup', null, callback, true);
 }
 
 QUnit.teardown = function(callback) {
-	QUnit.test('teardown', 0, callback, false);
+	QUnit.test('teardown', null, callback, false);
 }
 
 QUnit.asyncTeardown = function(callback) {
-	QUnit.test('teardown', 0, callback, true);
+	QUnit.test('teardown', null, callback, true);
 }
 
 jQExtend($);
