@@ -21,7 +21,7 @@ var frame = {
 		go: function(path) {
 			var dfd = $.Deferred();
 			var url = path;
-			var regex = new RegExp('http://[a-zA-Z0-9]');
+			var regex = new RegExp('^http://[a-zA-Z0-9]');
 			if(!regex.test(url)) {
 				url = 'http://' + context.host + ':' + context.port + '/' + path;
 			}
