@@ -10,6 +10,7 @@ VIRTUAL_PATHS = {
   'blade': os.path.join('c:\\blade', riurik_tests_path),
   'ford': os.path.join('c:\\ford', riurik_tests_path),
   'volodymyrlavrenchuk': os.path.join('c:\\VolodymyrLavrenchuk', riurik_tests_path),
+  'hunterbranch1': os.path.join('c:\\hunterbranch1', riurik_tests_path),
 }
 
 sys.path.append('C:\\hunter\\tests')
